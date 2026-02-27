@@ -316,6 +316,7 @@ func TestClassifyPaneContent_Active(t *testing.T) {
 		{"accomplishing", "· Accomplishing… (1m 13s · ↓ 1.3k tokens · thought for 20s)\n❯ \n"},
 		{"bare spinner no parens", "* Perusing…\n\n──────\n❯ \n"},
 		{"bare spinner three dots", "· Thinking...\n❯ \n"},
+		{"spinner elapsed timer without ellipsis", "◦ Investigating window process states (1m 08s • esc …)\n› \n"},
 		{
 			"active spinner above prompt text",
 			"• Implementing normalization, filtering, and selection logic (2m 23s • esc to interrupt)\n" +

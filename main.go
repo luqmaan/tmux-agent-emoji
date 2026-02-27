@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -34,6 +35,8 @@ var (
 	statusState   = make(map[string]*windowState)
 	statusStateMu sync.Mutex
 )
+
+var spinnerElapsedRE = regexp.MustCompile(`\(\s*\d+[hms](?:\s+\d+[hms])?`)
 
 type windowState struct {
 	applied string // status currently shown in tmux
@@ -590,6 +593,7 @@ func classifyPaneContent(content string) bool {
 func hasSpinnerMarker(line string) bool {
 	return strings.HasPrefix(line, "· ") ||
 		strings.HasPrefix(line, "• ") ||
+		strings.HasPrefix(line, "◦ ") ||
 		strings.HasPrefix(line, "✢ ") ||
 		strings.HasPrefix(line, "✻ ") ||
 		strings.HasPrefix(line, "* ")
@@ -603,7 +607,12 @@ func hasActiveMarker(line string) bool {
 		return false
 	}
 	// Claude/Codex spinner verbs: "Thinking…", "Brewing...", "Perusing…", etc.
-	return strings.Contains(line, "ing\u2026") || strings.Contains(line, "ing...")
+	if strings.Contains(line, "ing\u2026") || strings.Contains(line, "ing...") {
+		return true
+	}
+	// Newer Codex spinner lines can be plain gerunds with elapsed timing,
+	// e.g. "◦ Investigating ... (1m 08s • esc …)".
+	return spinnerElapsedRE.MatchString(line)
 }
 
 func classifyPaneActiveSignature(content string) string {
