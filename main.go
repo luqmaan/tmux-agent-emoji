@@ -38,6 +38,10 @@ var (
 
 var spinnerElapsedRE = regexp.MustCompile(`\(\s*\d+[hms](?:\s+\d+[hms])?`)
 
+const unreadIdleThreshold = 3 // cycles (3 * 2s = 6s) before showing 📬 on idle
+const unreadAfterWorkCooldown = 20 * time.Second
+const claudeIdleCooldown = 15 * time.Second
+
 type windowState struct {
 	applied string // status currently shown in tmux
 	pending string // candidate status seen last cycle
@@ -66,6 +70,8 @@ var (
 	windowSeen       = make(map[string]bool)
 	windowPromptSig  = make(map[string]string)
 	windowDoneSig    = make(map[string]string)
+	windowIdleStreak = make(map[string]int)
+	windowLastWorkAt = make(map[string]time.Time)
 	windowActiveSig  = make(map[string]string)
 	windowActiveAt   = make(map[string]time.Time)
 )
@@ -149,6 +155,7 @@ func updateAllPanes() {
 
 	// Apply unread logic per window, then set status.
 	for window, s := range summaries {
+		now := time.Now()
 		rawStatus := s.status
 		focused := s.focused
 		wasWorking := windowWasWorking[window]
@@ -185,6 +192,18 @@ func updateAllPanes() {
 		// Agent started working again → clear unread
 		if isWorking {
 			clearUnread(window)
+			windowLastWorkAt[window] = now
+		}
+
+		if !isWorking && rawStatus != "" && strings.HasSuffix(rawStatus, "💤") {
+			windowIdleStreak[window]++
+		} else {
+			windowIdleStreak[window] = 0
+		}
+
+		sinceLastWork := unreadAfterWorkCooldown
+		if ts, ok := windowLastWorkAt[window]; ok {
+			sinceLastWork = now.Sub(ts)
 		}
 
 		windowWasWorking[window] = isWorking
@@ -192,13 +211,15 @@ func updateAllPanes() {
 		windowPromptSig[window] = promptSig
 		windowDoneSig[window] = doneSig
 
-		// Replace 💤 with 📬 if unread
-		effectiveStatus := rawStatus
-		if !isWorking && rawStatus != "" && isUnread(window) {
-			if strings.HasSuffix(rawStatus, "💤") {
-				effectiveStatus = strings.TrimSuffix(rawStatus, "💤") + "📬"
-			}
-		}
+		// Replace 💤 with 📬 only after sustained idle to avoid flicker.
+		effectiveStatus := withUnreadMarker(
+			rawStatus,
+			isWorking,
+			isUnread(window),
+			windowIdleStreak[window],
+			sinceLastWork,
+		)
+		effectiveStatus = smoothClaudeIdle(effectiveStatus, sinceLastWork)
 
 		setWindowStatus(window, effectiveStatus)
 	}
@@ -236,6 +257,16 @@ func updateAllPanes() {
 	for w := range windowDoneSig {
 		if !seenWindows[w] {
 			delete(windowDoneSig, w)
+		}
+	}
+	for w := range windowIdleStreak {
+		if !seenWindows[w] {
+			delete(windowIdleStreak, w)
+		}
+	}
+	for w := range windowLastWorkAt {
+		if !seenWindows[w] {
+			delete(windowLastWorkAt, w)
 		}
 	}
 	for w := range windowActiveSig {
@@ -462,12 +493,14 @@ func getStatus(window string, panePID int, childMap map[int][]int, paneCache map
 		return prefix + childStatus
 	}
 
-	// If no child process is active, prompt means idle/waiting.
-	if paneNeedsAttention(window, paneCache) {
-		return prefix + "💤"
-	}
+	// Prioritize active detection (with grace window) over prompt detection.
+	// Spinner redraws can briefly expose a prompt line mid-run; checking
+	// activity first avoids 🧠 <-> 💤 flicker on long-running tabs.
 	if isPaneActive(window, paneCache) {
 		return prefix + "🧠"
+	}
+	if paneNeedsAttention(window, paneCache) {
+		return prefix + "💤"
 	}
 	return prefix + "💤"
 }
@@ -475,11 +508,11 @@ func getStatus(window string, panePID int, childMap map[int][]int, paneCache map
 func unknownChildStatus(prefix string, paneActive, needsAttention bool) string {
 	// Unknown child + visible prompt usually means background terminal
 	// or stale helper process; prefer attention/idle semantics.
-	if needsAttention {
-		return prefix + "💤"
-	}
 	if paneActive {
 		return prefix + "🧠"
+	}
+	if needsAttention {
+		return prefix + "💤"
 	}
 	return prefix + "⚙️"
 }
@@ -566,6 +599,34 @@ func isStaleActiveMarker(window, content string, now time.Time) bool {
 func clearActiveMarker(window string) {
 	delete(windowActiveSig, window)
 	delete(windowActiveAt, window)
+}
+
+func withUnreadMarker(
+	rawStatus string,
+	isWorking, unread bool,
+	idleStreak int,
+	sinceLastWork time.Duration,
+) string {
+	if !isWorking &&
+		rawStatus != "" &&
+		unread &&
+		idleStreak >= unreadIdleThreshold &&
+		sinceLastWork >= unreadAfterWorkCooldown &&
+		strings.HasSuffix(rawStatus, "💤") {
+		return strings.TrimSuffix(rawStatus, "💤") + "📬"
+	}
+	return rawStatus
+}
+
+func smoothClaudeIdle(status string, sinceLastWork time.Duration) string {
+	// Claude panes can briefly expose a bare prompt while still in an active run.
+	// Hold idle transitions for a short cooldown to prevent 🧠 <-> 💤 flicker.
+	if strings.HasPrefix(status, "c ") &&
+		strings.HasSuffix(status, "💤") &&
+		sinceLastWork < claudeIdleCooldown {
+		return "c 🧠"
+	}
+	return status
 }
 
 // classifyPaneContent returns true if the pane content indicates active work.

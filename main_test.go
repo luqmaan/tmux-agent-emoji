@@ -94,7 +94,7 @@ func TestUnknownChildStatus(t *testing.T) {
 		needsAttention bool
 		want           string
 	}{
-		{"attention beats active", "x ", true, true, "x 💤"},
+		{"active beats attention", "x ", true, true, "x 🧠"},
 		{"active without attention", "x ", true, false, "x 🧠"},
 		{"idle unknown child", "x ", false, false, "x ⚙️"},
 	}
@@ -650,6 +650,110 @@ func TestUnreadReplacesIdle(t *testing.T) {
 	statusStateMu.Lock()
 	delete(statusState, window)
 	statusStateMu.Unlock()
+}
+
+func TestWithUnreadMarkerThreshold(t *testing.T) {
+	tests := []struct {
+		name       string
+		rawStatus  string
+		isWorking  bool
+		unread     bool
+		idleStreak int
+		sinceWork  time.Duration
+		want       string
+	}{
+		{
+			name:       "below threshold stays idle",
+			rawStatus:  "c 💤",
+			unread:     true,
+			idleStreak: unreadIdleThreshold - 1,
+			sinceWork:  unreadAfterWorkCooldown + time.Second,
+			want:       "c 💤",
+		},
+		{
+			name:       "at threshold becomes mailbox",
+			rawStatus:  "c 💤",
+			unread:     true,
+			idleStreak: unreadIdleThreshold,
+			sinceWork:  unreadAfterWorkCooldown + time.Second,
+			want:       "c 📬",
+		},
+		{
+			name:       "working never becomes mailbox",
+			rawStatus:  "c 🧠",
+			isWorking:  true,
+			unread:     true,
+			idleStreak: unreadIdleThreshold + 5,
+			sinceWork:  unreadAfterWorkCooldown + time.Second,
+			want:       "c 🧠",
+		},
+		{
+			name:       "non-idle suffix unchanged",
+			rawStatus:  "c 🔨",
+			unread:     true,
+			idleStreak: unreadIdleThreshold + 5,
+			sinceWork:  unreadAfterWorkCooldown + time.Second,
+			want:       "c 🔨",
+		},
+		{
+			name:       "recent work suppresses mailbox",
+			rawStatus:  "c 💤",
+			unread:     true,
+			idleStreak: unreadIdleThreshold + 5,
+			sinceWork:  unreadAfterWorkCooldown - time.Second,
+			want:       "c 💤",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := withUnreadMarker(tt.rawStatus, tt.isWorking, tt.unread, tt.idleStreak, tt.sinceWork); got != tt.want {
+				t.Errorf("withUnreadMarker() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestSmoothClaudeIdle(t *testing.T) {
+	tests := []struct {
+		name      string
+		status    string
+		sinceWork time.Duration
+		want      string
+	}{
+		{
+			name:      "claude idle held as active within cooldown",
+			status:    "c 💤",
+			sinceWork: claudeIdleCooldown - time.Second,
+			want:      "c 🧠",
+		},
+		{
+			name:      "claude idle allowed after cooldown",
+			status:    "c 💤",
+			sinceWork: claudeIdleCooldown + time.Second,
+			want:      "c 💤",
+		},
+		{
+			name:      "codex idle unaffected",
+			status:    "x 💤",
+			sinceWork: claudeIdleCooldown - time.Second,
+			want:      "x 💤",
+		},
+		{
+			name:      "non-idle status unchanged",
+			status:    "c 🔨",
+			sinceWork: claudeIdleCooldown - time.Second,
+			want:      "c 🔨",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := smoothClaudeIdle(tt.status, tt.sinceWork); got != tt.want {
+				t.Errorf("smoothClaudeIdle() = %q, want %q", got, tt.want)
+			}
+		})
+	}
 }
 
 func TestShouldMarkUnread(t *testing.T) {
