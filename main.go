@@ -220,6 +220,7 @@ func updateAllPanes() {
 			sinceLastWork,
 		)
 		effectiveStatus = smoothClaudeIdle(effectiveStatus, sinceLastWork)
+		effectiveStatus = withDraftMarker(effectiveStatus, promptSig)
 
 		setWindowStatus(window, effectiveStatus)
 	}
@@ -330,6 +331,10 @@ func shouldMarkUnread(
 	promptSig, prevPromptSig, doneSig, prevDoneSig string,
 ) bool {
 	if focused || isWorking || rawStatus == "" {
+		return false
+	}
+	// Codex draft edits in the prompt (unsent user input) should not create unread.
+	if strings.HasPrefix(promptSig, "codex:") && hasPromptText(promptSig) && !wasWorking && doneSig == "" {
 		return false
 	}
 	if wasWorking {
@@ -653,6 +658,19 @@ func smoothClaudeIdle(status string, sinceLastWork time.Duration) string {
 		return "c 🧠"
 	}
 	return status
+}
+
+func withDraftMarker(status, promptSig string) string {
+	// Unsent prompt text means "drafting" rather than unread/idle.
+	if !strings.HasPrefix(promptSig, "codex:") || !hasPromptText(promptSig) {
+		return status
+	}
+	switch {
+	case strings.HasPrefix(status, "x ") && (strings.HasSuffix(status, "💤") || strings.HasSuffix(status, "📬")):
+		return "x 📝"
+	default:
+		return status
+	}
 }
 
 // classifyPaneContent returns true if the pane content indicates active work.

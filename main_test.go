@@ -765,6 +765,48 @@ func TestSmoothClaudeIdle(t *testing.T) {
 	}
 }
 
+func TestWithDraftMarker(t *testing.T) {
+	tests := []struct {
+		name      string
+		status    string
+		promptSig string
+		want      string
+	}{
+		{
+			name:      "codex idle with typed prompt becomes drafting",
+			status:    "x 💤",
+			promptSig: "codex:› investigate this",
+			want:      "x 📝",
+		},
+		{
+			name:      "codex unread with typed prompt becomes drafting",
+			status:    "x 📬",
+			promptSig: "codex:› investigate this",
+			want:      "x 📝",
+		},
+		{
+			name:      "codex bare prompt does not become drafting",
+			status:    "x 💤",
+			promptSig: "codex:›",
+			want:      "x 💤",
+		},
+		{
+			name:      "claude prompt unaffected",
+			status:    "c 💤",
+			promptSig: "claude:❯ test",
+			want:      "c 💤",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := withDraftMarker(tt.status, tt.promptSig); got != tt.want {
+				t.Errorf("withDraftMarker() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestShouldMarkUnread(t *testing.T) {
 	tests := []struct {
 		name          string
@@ -784,12 +826,12 @@ func TestShouldMarkUnread(t *testing.T) {
 			wasWorking: true, rawStatus: "x 💤", want: true,
 		},
 		{
-			name:          "new prompt signature after baseline",
+			name:          "codex draft prompt change stays read",
 			seenBefore:    true,
 			rawStatus:     "x 💤",
 			prevPromptSig: "codex:› old",
-			promptSig:     "codex:› new",
-			want:          true,
+			promptSig:     "codex:› new draft text",
+			want:          false,
 		},
 		{
 			name:        "new completion signature after baseline",
@@ -800,10 +842,17 @@ func TestShouldMarkUnread(t *testing.T) {
 			want:        true,
 		},
 		{
-			name:       "first baseline prompt with text marks unread",
+			name:       "first baseline codex draft stays read",
 			seenBefore: false,
 			rawStatus:  "x 💤",
 			promptSig:  "codex:› Explain this codebase",
+			want:       false,
+		},
+		{
+			name:       "working to idle codex with prompt text still marks unread",
+			wasWorking: true,
+			rawStatus:  "x 💤",
+			promptSig:  "codex:› continue",
 			want:       true,
 		},
 		{
