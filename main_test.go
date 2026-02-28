@@ -776,13 +776,25 @@ func TestWithDraftMarker(t *testing.T) {
 			name:      "codex idle with typed prompt becomes drafting",
 			status:    "x 💤",
 			promptSig: "codex:› investigate this",
-			want:      "x✏️",
+			want:      "x✏",
 		},
 		{
 			name:      "codex unread with typed prompt becomes drafting",
 			status:    "x 📬",
 			promptSig: "codex:› investigate this",
-			want:      "x✏️",
+			want:      "x✏",
+		},
+		{
+			name:      "claude idle with typed prompt becomes drafting",
+			status:    "c 💤",
+			promptSig: "claude:❯ investigate this",
+			want:      "c✏",
+		},
+		{
+			name:      "claude unread with typed prompt becomes drafting",
+			status:    "c 📬",
+			promptSig: "claude:❯ investigate this",
+			want:      "c✏",
 		},
 		{
 			name:      "codex bare prompt does not become drafting",
@@ -791,10 +803,10 @@ func TestWithDraftMarker(t *testing.T) {
 			want:      "x 💤",
 		},
 		{
-			name:      "claude prompt unaffected",
-			status:    "c 💤",
+			name:      "claude active status unchanged",
+			status:    "c 🧠",
 			promptSig: "claude:❯ test",
-			want:      "c 💤",
+			want:      "c 🧠",
 		},
 	}
 
@@ -807,38 +819,43 @@ func TestWithDraftMarker(t *testing.T) {
 	}
 }
 
-func TestDetectLiveCodexDraftSignature(t *testing.T) {
+func TestDetectLiveDraftSignature(t *testing.T) {
 	tests := []struct {
 		name    string
 		content string
 		want    string
 	}{
 		{
-			name: "bottom codex prompt with text is draft",
+			name:    "bottom codex prompt with text is draft",
 			content: "Done.\n\n› draft this message",
-			want: "codex:› draft this message",
+			want:    "codex:› draft this message",
 		},
 		{
-			name: "bare prompt is not draft",
+			name:    "bare prompt is not draft",
 			content: "Done.\n\n›",
-			want: "",
+			want:    "",
 		},
 		{
-			name: "prompt text not at bottom is not draft",
+			name:    "prompt text not at bottom is not draft",
 			content: "› old prompt text\nSome other output",
-			want: "",
+			want:    "",
 		},
 		{
-			name: "claude prompt is not codex draft",
-			content: "❯ draft this",
-			want: "",
+			name:    "bottom claude prompt with text is draft",
+			content: "All set.\n\n❯ draft this",
+			want:    "claude:❯ draft this",
+		},
+		{
+			name:    "bare claude prompt is not draft",
+			content: "All set.\n\n❯",
+			want:    "",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := detectLiveCodexDraftSignature(tt.content); got != tt.want {
-				t.Errorf("detectLiveCodexDraftSignature() = %q, want %q", got, tt.want)
+			if got := detectLiveDraftSignature(tt.content); got != tt.want {
+				t.Errorf("detectLiveDraftSignature() = %q, want %q", got, tt.want)
 			}
 		})
 	}
@@ -856,7 +873,7 @@ func TestShouldMarkUnread(t *testing.T) {
 		prevPromptSig string
 		doneSig       string
 		prevDoneSig   string
-		isCodexDraft  bool
+		isLiveDraft   bool
 		want          bool
 	}{
 		{
@@ -869,7 +886,16 @@ func TestShouldMarkUnread(t *testing.T) {
 			rawStatus:     "x 💤",
 			prevPromptSig: "codex:› old",
 			promptSig:     "codex:› new draft text",
-			isCodexDraft:  true,
+			isLiveDraft:   true,
+			want:          false,
+		},
+		{
+			name:          "claude draft prompt change stays read",
+			seenBefore:    true,
+			rawStatus:     "c 💤",
+			prevPromptSig: "claude:❯ old",
+			promptSig:     "claude:❯ new draft text",
+			isLiveDraft:   true,
 			want:          false,
 		},
 		{
@@ -881,12 +907,12 @@ func TestShouldMarkUnread(t *testing.T) {
 			want:        true,
 		},
 		{
-			name:       "first baseline codex draft stays read",
-			seenBefore: false,
-			rawStatus:  "x 💤",
-			promptSig:  "codex:› Explain this codebase",
-			isCodexDraft: true,
-			want:       false,
+			name:        "first baseline codex draft stays read",
+			seenBefore:  false,
+			rawStatus:   "x 💤",
+			promptSig:   "codex:› Explain this codebase",
+			isLiveDraft: true,
+			want:        false,
 		},
 		{
 			name:       "working to idle codex with prompt text still marks unread",
@@ -949,7 +975,7 @@ func TestShouldMarkUnread(t *testing.T) {
 				tt.prevPromptSig,
 				tt.doneSig,
 				tt.prevDoneSig,
-				tt.isCodexDraft,
+				tt.isLiveDraft,
 			)
 			if got != tt.want {
 				t.Errorf("shouldMarkUnread() = %v, want %v", got, tt.want)
