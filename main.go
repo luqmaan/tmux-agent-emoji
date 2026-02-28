@@ -493,26 +493,45 @@ func getStatus(window string, panePID int, childMap map[int][]int, paneCache map
 		return prefix + childStatus
 	}
 
-	// Prioritize active detection (with grace window) over prompt detection.
-	// Spinner redraws can briefly expose a prompt line mid-run; checking
-	// activity first avoids 🧠 <-> 💤 flicker on long-running tabs.
-	if isPaneActive(window, paneCache) {
-		return prefix + "🧠"
+	// Claude and Codex need different idle heuristics:
+	// - Claude: active first to suppress prompt-redraw flicker.
+	// - Codex: prompt first (original behavior).
+	if agentName == "claude" {
+		if isPaneActive(window, paneCache) {
+			return prefix + "🧠"
+		}
+		if paneNeedsAttention(window, paneCache) {
+			return prefix + "💤"
+		}
+		return prefix + "💤"
 	}
 	if paneNeedsAttention(window, paneCache) {
 		return prefix + "💤"
+	}
+	if isPaneActive(window, paneCache) {
+		return prefix + "🧠"
 	}
 	return prefix + "💤"
 }
 
 func unknownChildStatus(prefix string, paneActive, needsAttention bool) string {
-	// Unknown child + visible prompt usually means background terminal
-	// or stale helper process; prefer attention/idle semantics.
-	if paneActive {
-		return prefix + "🧠"
+	// Claude and Codex use different precedence here (see getStatus).
+	if strings.HasPrefix(prefix, "c ") {
+		if paneActive {
+			return prefix + "🧠"
+		}
+		if needsAttention {
+			return prefix + "💤"
+		}
+		return prefix + "⚙️"
 	}
+
+	// Codex legacy behavior: attention takes precedence.
 	if needsAttention {
 		return prefix + "💤"
+	}
+	if paneActive {
+		return prefix + "🧠"
 	}
 	return prefix + "⚙️"
 }
@@ -607,12 +626,19 @@ func withUnreadMarker(
 	idleStreak int,
 	sinceLastWork time.Duration,
 ) string {
-	if !isWorking &&
-		rawStatus != "" &&
-		unread &&
+	if isWorking || rawStatus == "" || !unread || !strings.HasSuffix(rawStatus, "💤") {
+		return rawStatus
+	}
+
+	// Codex uses the original immediate unread marker behavior.
+	if strings.HasPrefix(rawStatus, "x ") {
+		return strings.TrimSuffix(rawStatus, "💤") + "📬"
+	}
+
+	// Claude keeps anti-flicker gating.
+	if strings.HasPrefix(rawStatus, "c ") &&
 		idleStreak >= unreadIdleThreshold &&
-		sinceLastWork >= unreadAfterWorkCooldown &&
-		strings.HasSuffix(rawStatus, "💤") {
+		sinceLastWork >= unreadAfterWorkCooldown {
 		return strings.TrimSuffix(rawStatus, "💤") + "📬"
 	}
 	return rawStatus

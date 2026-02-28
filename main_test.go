@@ -94,8 +94,9 @@ func TestUnknownChildStatus(t *testing.T) {
 		needsAttention bool
 		want           string
 	}{
-		{"active beats attention", "x ", true, true, "x 🧠"},
-		{"active without attention", "x ", true, false, "x 🧠"},
+		{"codex attention beats active", "x ", true, true, "x 💤"},
+		{"codex active without attention", "x ", true, false, "x 🧠"},
+		{"claude active beats attention", "c ", true, true, "c 🧠"},
 		{"idle unknown child", "x ", false, false, "x ⚙️"},
 	}
 	for _, tt := range tests {
@@ -702,6 +703,14 @@ func TestWithUnreadMarkerThreshold(t *testing.T) {
 			idleStreak: unreadIdleThreshold + 5,
 			sinceWork:  unreadAfterWorkCooldown - time.Second,
 			want:       "c 💤",
+		},
+		{
+			name:       "codex unread is immediate (legacy behavior)",
+			rawStatus:  "x 💤",
+			unread:     true,
+			idleStreak: 0,
+			sinceWork:  0,
+			want:       "x 📬",
 		},
 	}
 
