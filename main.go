@@ -679,7 +679,7 @@ func withDraftMarker(status, promptSig string) string {
 	}
 	switch {
 	case strings.HasPrefix(status, "x ") && (strings.HasSuffix(status, "💤") || strings.HasSuffix(status, "📬")):
-		return "x 📝"
+		return "x✏️"
 	default:
 		return status
 	}

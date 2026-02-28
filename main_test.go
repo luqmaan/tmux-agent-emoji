@@ -776,13 +776,13 @@ func TestWithDraftMarker(t *testing.T) {
 			name:      "codex idle with typed prompt becomes drafting",
 			status:    "x 💤",
 			promptSig: "codex:› investigate this",
-			want:      "x 📝",
+			want:      "x✏️",
 		},
 		{
 			name:      "codex unread with typed prompt becomes drafting",
 			status:    "x 📬",
 			promptSig: "codex:› investigate this",
-			want:      "x 📝",
+			want:      "x✏️",
 		},
 		{
 			name:      "codex bare prompt does not become drafting",
