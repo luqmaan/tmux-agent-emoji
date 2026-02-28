@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
+	"unicode/utf8"
 )
 
 var (
@@ -18,7 +20,7 @@ var (
 			"-F", "#{session_name}:#{window_index} #{pane_pid} #{window_active}").Output()
 	}
 	capturePaneOutput = func(window string) ([]byte, error) {
-		return exec.Command("tmux", "capture-pane", "-t", window, "-p").Output()
+		return exec.Command("tmux", "capture-pane", "-t", window, "-p", "-e").Output()
 	}
 )
 
@@ -37,6 +39,7 @@ var (
 )
 
 var spinnerElapsedRE = regexp.MustCompile(`\(\s*\d+[hms](?:\s+\d+[hms])?`)
+var ansiEscapeRE = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 
 const unreadIdleThreshold = 3 // cycles (3 * 2s = 6s) before showing 📬 on idle
 const unreadAfterWorkCooldown = 20 * time.Second
@@ -103,6 +106,7 @@ func listPanes() []paneInfo {
 
 type paneCapture struct {
 	content string
+	styled  string
 	ok      bool
 }
 
@@ -117,9 +121,23 @@ func getPaneContent(window string, cache map[string]*paneCapture) (string, bool)
 		return "", false
 	}
 
-	content := string(out)
-	cache[window] = &paneCapture{content: content, ok: true}
+	styled := string(out)
+	content := stripANSI(styled)
+	cache[window] = &paneCapture{content: content, styled: styled, ok: true}
 	return content, true
+}
+
+func getPaneStyledContent(window string, cache map[string]*paneCapture) (string, bool) {
+	if c, ok := cache[window]; ok {
+		return c.styled, c.ok
+	}
+	if _, ok := getPaneContent(window, cache); !ok {
+		return "", false
+	}
+	if c, ok := cache[window]; ok {
+		return c.styled, c.ok
+	}
+	return "", false
 }
 
 func updateAllPanes() {
@@ -562,7 +580,7 @@ func paneSignals(window string, paneCache map[string]*paneCapture) (promptSig, d
 }
 
 func paneLiveDraftSignature(window string, paneCache map[string]*paneCapture) string {
-	content, ok := getPaneContent(window, paneCache)
+	content, ok := getPaneStyledContent(window, paneCache)
 	if !ok {
 		return ""
 	}
@@ -693,26 +711,30 @@ func detectLiveDraftSignature(content string) string {
 	significantBelow := 0
 
 	for i := len(lines) - 1; i >= 0 && checked < 12; i-- {
-		line := strings.TrimSpace(lines[i])
-		if line == "" {
+		rawLine := lines[i]
+		plainLine := strings.TrimSpace(stripANSI(rawLine))
+		if plainLine == "" {
 			continue
 		}
 		checked++
 
 		sig := ""
 		switch {
-		case strings.HasPrefix(line, "›"):
-			sig = "codex:" + line
-		case strings.HasPrefix(line, "❯"):
-			sig = "claude:" + line
+		case strings.HasPrefix(plainLine, "›"):
+			sig = "codex:" + plainLine
+		case strings.HasPrefix(plainLine, "❯"):
+			sig = "claude:" + plainLine
 		}
 		if sig != "" {
 			if hasPromptText(sig) && significantBelow == 0 {
+				if !hasTypedPromptText(rawLine) {
+					return ""
+				}
 				return sig
 			}
 			return ""
 		}
-		if !isLiveDraftFooterLine(line) {
+		if !isLiveDraftFooterLine(plainLine) {
 			significantBelow++
 		}
 	}
@@ -731,6 +753,101 @@ func isLiveDraftFooterLine(line string) bool {
 		strings.HasPrefix(line, "🟡 ") ||
 		strings.HasPrefix(line, "🟠 ") ||
 		strings.HasPrefix(line, "🔴 ")
+}
+
+func stripANSI(s string) string {
+	return ansiEscapeRE.ReplaceAllString(s, "")
+}
+
+func hasTypedPromptText(rawLine string) bool {
+	if !strings.Contains(rawLine, "\x1b[") {
+		plain := strings.TrimSpace(rawLine)
+		switch {
+		case strings.HasPrefix(plain, "›"):
+			return strings.TrimSpace(strings.TrimPrefix(plain, "›")) != ""
+		case strings.HasPrefix(plain, "❯"):
+			return strings.TrimSpace(strings.TrimPrefix(plain, "❯")) != ""
+		default:
+			return false
+		}
+	}
+
+	dim := false
+	reverse := false
+	seenPrompt := false
+	sawAny := false
+	sawSolid := false
+	sawDim := false
+
+	for i := 0; i < len(rawLine); {
+		if rawLine[i] == 0x1b && i+1 < len(rawLine) && rawLine[i+1] == '[' {
+			j := i + 2
+			for j < len(rawLine) && rawLine[j] != 'm' {
+				j++
+			}
+			if j < len(rawLine) && rawLine[j] == 'm' {
+				codes := strings.Split(rawLine[i+2:j], ";")
+				if len(codes) == 1 && codes[0] == "" {
+					codes = []string{"0"}
+				}
+				for _, code := range codes {
+					switch code {
+					case "0":
+						dim = false
+						reverse = false
+					case "2":
+						dim = true
+					case "22":
+						dim = false
+					case "7":
+						reverse = true
+					case "27":
+						reverse = false
+					}
+				}
+				i = j + 1
+				continue
+			}
+		}
+
+		r, size := utf8.DecodeRuneInString(rawLine[i:])
+		if r == utf8.RuneError && size == 1 {
+			i++
+			continue
+		}
+		i += size
+
+		if !seenPrompt {
+			if r == '›' || r == '❯' {
+				seenPrompt = true
+			}
+			continue
+		}
+		if unicode.IsSpace(r) {
+			continue
+		}
+
+		sawAny = true
+		if dim {
+			sawDim = true
+			continue
+		}
+		if reverse {
+			continue
+		}
+		sawSolid = true
+	}
+
+	if !sawAny {
+		return false
+	}
+	if sawSolid {
+		return true
+	}
+	if sawDim {
+		return false
+	}
+	return false
 }
 
 // classifyPaneContent returns true if the pane content indicates active work.

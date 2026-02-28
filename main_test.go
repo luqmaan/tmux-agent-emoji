@@ -879,6 +879,21 @@ func TestDetectLiveDraftSignature(t *testing.T) {
 			want: "claude:❯\u00a0draft this",
 		},
 		{
+			name: "claude ghost suggestion line is not draft",
+			content: "All set.\n" +
+				"────────────────\n" +
+				"❯\u00a0\x1b[7mo\x1b[0;2mk now let's start implementing this\x1b[0m\n" +
+				"────────────────\n" +
+				"🟢 43%\n" +
+				"⏵⏵ bypass permissions on (shift+tab to cycle)\n",
+			want: "",
+		},
+		{
+			name:    "codex dim suggestion line is not draft",
+			content: "\x1b[1m›\x1b[0m\x1b[48;5;237m \x1b[2mExplain this codebase\x1b[0m",
+			want:    "",
+		},
+		{
 			name: "prompt with real output below is not draft",
 			content: "All set.\n\n❯ draft this\n" +
 				"Task finished.\n",
