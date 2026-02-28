@@ -163,8 +163,10 @@ func updateAllPanes() {
 		seenBefore := windowSeen[window]
 		promptSig := ""
 		doneSig := ""
+		codexDraftSig := ""
 		if !isWorking && rawStatus != "" {
 			promptSig, doneSig = paneSignals(window, paneCache)
+			codexDraftSig = paneCodexDraftSignature(window, paneCache)
 		}
 		prevPromptSig := windowPromptSig[window]
 		prevDoneSig := windowDoneSig[window]
@@ -182,6 +184,7 @@ func updateAllPanes() {
 			prevPromptSig,
 			doneSig,
 			prevDoneSig,
+			codexDraftSig != "",
 		) {
 			markUnread(window)
 		}
@@ -220,7 +223,7 @@ func updateAllPanes() {
 			sinceLastWork,
 		)
 		effectiveStatus = smoothClaudeIdle(effectiveStatus, sinceLastWork)
-		effectiveStatus = withDraftMarker(effectiveStatus, promptSig)
+		effectiveStatus = withDraftMarker(effectiveStatus, codexDraftSig)
 
 		setWindowStatus(window, effectiveStatus)
 	}
@@ -329,12 +332,13 @@ func shouldMarkUnread(
 	rawStatus string,
 	seenBefore bool,
 	promptSig, prevPromptSig, doneSig, prevDoneSig string,
+	isCodexDraft bool,
 ) bool {
 	if focused || isWorking || rawStatus == "" {
 		return false
 	}
 	// Codex draft edits in the prompt (unsent user input) should not create unread.
-	if strings.HasPrefix(promptSig, "codex:") && hasPromptText(promptSig) && !wasWorking && doneSig == "" {
+	if isCodexDraft && !wasWorking && doneSig == "" {
 		return false
 	}
 	if wasWorking {
@@ -557,6 +561,14 @@ func paneSignals(window string, paneCache map[string]*paneCapture) (promptSig, d
 	return classifyPaneAttentionSignature(content), classifyPaneCompletionSignature(content)
 }
 
+func paneCodexDraftSignature(window string, paneCache map[string]*paneCapture) string {
+	content, ok := getPaneContent(window, paneCache)
+	if !ok {
+		return ""
+	}
+	return detectLiveCodexDraftSignature(content)
+}
+
 // isPaneActive captures the pane content and checks for activity indicators.
 // Uses a grace period to prevent flashing during spinner redraws.
 func isPaneActive(window string, paneCache map[string]*paneCapture) bool {
@@ -662,7 +674,7 @@ func smoothClaudeIdle(status string, sinceLastWork time.Duration) string {
 
 func withDraftMarker(status, promptSig string) string {
 	// Unsent prompt text means "drafting" rather than unread/idle.
-	if !strings.HasPrefix(promptSig, "codex:") || !hasPromptText(promptSig) {
+	if promptSig == "" || !hasPromptText(promptSig) {
 		return status
 	}
 	switch {
@@ -671,6 +683,30 @@ func withDraftMarker(status, promptSig string) string {
 	default:
 		return status
 	}
+}
+
+func detectLiveCodexDraftSignature(content string) string {
+	lines := strings.Split(content, "\n")
+	checked := 0
+	nonEmptyBelow := 0
+
+	for i := len(lines) - 1; i >= 0 && checked < 12; i-- {
+		line := strings.TrimSpace(lines[i])
+		if line == "" {
+			continue
+		}
+		checked++
+
+		if strings.HasPrefix(line, "› ") || line == "›" {
+			sig := "codex:" + line
+			if hasPromptText(sig) && nonEmptyBelow == 0 {
+				return sig
+			}
+			return ""
+		}
+		nonEmptyBelow++
+	}
+	return ""
 }
 
 // classifyPaneContent returns true if the pane content indicates active work.

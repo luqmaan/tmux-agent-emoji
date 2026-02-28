@@ -807,6 +807,43 @@ func TestWithDraftMarker(t *testing.T) {
 	}
 }
 
+func TestDetectLiveCodexDraftSignature(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+		want    string
+	}{
+		{
+			name: "bottom codex prompt with text is draft",
+			content: "Done.\n\n› draft this message",
+			want: "codex:› draft this message",
+		},
+		{
+			name: "bare prompt is not draft",
+			content: "Done.\n\n›",
+			want: "",
+		},
+		{
+			name: "prompt text not at bottom is not draft",
+			content: "› old prompt text\nSome other output",
+			want: "",
+		},
+		{
+			name: "claude prompt is not codex draft",
+			content: "❯ draft this",
+			want: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := detectLiveCodexDraftSignature(tt.content); got != tt.want {
+				t.Errorf("detectLiveCodexDraftSignature() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestShouldMarkUnread(t *testing.T) {
 	tests := []struct {
 		name          string
@@ -819,6 +856,7 @@ func TestShouldMarkUnread(t *testing.T) {
 		prevPromptSig string
 		doneSig       string
 		prevDoneSig   string
+		isCodexDraft  bool
 		want          bool
 	}{
 		{
@@ -831,6 +869,7 @@ func TestShouldMarkUnread(t *testing.T) {
 			rawStatus:     "x 💤",
 			prevPromptSig: "codex:› old",
 			promptSig:     "codex:› new draft text",
+			isCodexDraft:  true,
 			want:          false,
 		},
 		{
@@ -846,6 +885,7 @@ func TestShouldMarkUnread(t *testing.T) {
 			seenBefore: false,
 			rawStatus:  "x 💤",
 			promptSig:  "codex:› Explain this codebase",
+			isCodexDraft: true,
 			want:       false,
 		},
 		{
@@ -909,6 +949,7 @@ func TestShouldMarkUnread(t *testing.T) {
 				tt.prevPromptSig,
 				tt.doneSig,
 				tt.prevDoneSig,
+				tt.isCodexDraft,
 			)
 			if got != tt.want {
 				t.Errorf("shouldMarkUnread() = %v, want %v", got, tt.want)
