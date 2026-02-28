@@ -440,11 +440,29 @@ func TestClassifyPaneActiveSignature(t *testing.T) {
 }
 
 func TestDetectPromptSignature(t *testing.T) {
-	content := "Done.\n\n› Summarize recent commits\n\n  gpt-5.3-codex xhigh · 45% left\n"
-	got := detectPromptSignature(content)
-	want := "codex:› Summarize recent commits"
-	if got != want {
-		t.Errorf("detectPromptSignature() = %q, want %q", got, want)
+	tests := []struct {
+		name    string
+		content string
+		want    string
+	}{
+		{
+			name:    "codex prompt",
+			content: "Done.\n\n› Summarize recent commits\n\n  gpt-5.3-codex xhigh · 45% left\n",
+			want:    "codex:› Summarize recent commits",
+		},
+		{
+			name:    "claude prompt with nbsp separator",
+			content: "All set.\n\n❯\u00a0draft a reply\n",
+			want:    "claude:❯\u00a0draft a reply",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := detectPromptSignature(tt.content); got != tt.want {
+				t.Errorf("detectPromptSignature() = %q, want %q", got, tt.want)
+			}
+		})
 	}
 }
 
@@ -844,6 +862,11 @@ func TestDetectLiveDraftSignature(t *testing.T) {
 			name:    "bottom claude prompt with text is draft",
 			content: "All set.\n\n❯ draft this",
 			want:    "claude:❯ draft this",
+		},
+		{
+			name:    "bottom claude prompt with nbsp is draft",
+			content: "All set.\n\n❯\u00a0draft this",
+			want:    "claude:❯\u00a0draft this",
 		},
 		{
 			name:    "bare claude prompt is not draft",

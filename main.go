@@ -701,9 +701,9 @@ func detectLiveDraftSignature(content string) string {
 
 		sig := ""
 		switch {
-		case strings.HasPrefix(line, "› ") || line == "›":
+		case strings.HasPrefix(line, "›"):
 			sig = "codex:" + line
-		case strings.HasPrefix(line, "❯ ") || line == "❯":
+		case strings.HasPrefix(line, "❯"):
 			sig = "claude:" + line
 		}
 		if sig != "" {
@@ -802,10 +802,10 @@ func detectPromptSignature(content string) string {
 			continue
 		}
 		checked++
-		if strings.HasPrefix(line, "› ") || line == "›" {
+		if strings.HasPrefix(line, "›") {
 			return "codex:" + line
 		}
-		if strings.HasPrefix(line, "❯ ") || line == "❯" {
+		if strings.HasPrefix(line, "❯") {
 			return "claude:" + line
 		}
 	}
