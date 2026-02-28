@@ -869,6 +869,22 @@ func TestDetectLiveDraftSignature(t *testing.T) {
 			want:    "claude:❯\u00a0draft this",
 		},
 		{
+			name: "claude prompt with footer lines below is draft",
+			content: "All set.\n" +
+				"────────────────\n" +
+				"❯\u00a0draft this\n" +
+				"────────────────\n" +
+				"🟢 35%\n" +
+				"⏵⏵ bypass permissions on (shift+tab to cycle)\n",
+			want: "claude:❯\u00a0draft this",
+		},
+		{
+			name: "prompt with real output below is not draft",
+			content: "All set.\n\n❯ draft this\n" +
+				"Task finished.\n",
+			want: "",
+		},
+		{
 			name:    "bare claude prompt is not draft",
 			content: "All set.\n\n❯",
 			want:    "",

@@ -690,7 +690,7 @@ func withDraftMarker(status, draftSig string) string {
 func detectLiveDraftSignature(content string) string {
 	lines := strings.Split(content, "\n")
 	checked := 0
-	nonEmptyBelow := 0
+	significantBelow := 0
 
 	for i := len(lines) - 1; i >= 0 && checked < 12; i-- {
 		line := strings.TrimSpace(lines[i])
@@ -707,14 +707,30 @@ func detectLiveDraftSignature(content string) string {
 			sig = "claude:" + line
 		}
 		if sig != "" {
-			if hasPromptText(sig) && nonEmptyBelow == 0 {
+			if hasPromptText(sig) && significantBelow == 0 {
 				return sig
 			}
 			return ""
 		}
-		nonEmptyBelow++
+		if !isLiveDraftFooterLine(line) {
+			significantBelow++
+		}
 	}
 	return ""
+}
+
+func isLiveDraftFooterLine(line string) bool {
+	// Claude keeps prompt chrome below the editable line.
+	if strings.Trim(line, "─") == "" {
+		return true
+	}
+	if strings.HasPrefix(line, "⏵⏵ ") {
+		return true
+	}
+	return strings.HasPrefix(line, "🟢 ") ||
+		strings.HasPrefix(line, "🟡 ") ||
+		strings.HasPrefix(line, "🟠 ") ||
+		strings.HasPrefix(line, "🔴 ")
 }
 
 // classifyPaneContent returns true if the pane content indicates active work.
