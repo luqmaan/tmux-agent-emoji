@@ -875,6 +875,8 @@ func classifyPaneContent(content string) bool {
 func hasSpinnerMarker(line string) bool {
 	return strings.HasPrefix(line, "· ") ||
 		strings.HasPrefix(line, "• ") ||
+		strings.HasPrefix(line, "● ") ||
+		strings.HasPrefix(line, "⏺ ") ||
 		strings.HasPrefix(line, "◦ ") ||
 		strings.HasPrefix(line, "✢ ") ||
 		strings.HasPrefix(line, "✻ ") ||
