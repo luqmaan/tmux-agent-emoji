@@ -8,7 +8,7 @@ build:
 
 install: build
 	mkdir -p $(PREFIX)
-	cp $(BINARY) $(PREFIX)/$(BINARY)
+	cp $(BINARY) $(PREFIX)/$(BINARY)-bin
 
 uninstall:
 	rm -f $(PREFIX)/$(BINARY)

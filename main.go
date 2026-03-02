@@ -39,6 +39,7 @@ var (
 )
 
 var spinnerElapsedRE = regexp.MustCompile(`\(\s*\d+[hms](?:\s+\d+[hms])?`)
+var thoughtElapsedRE = regexp.MustCompile(`\(thought for \d+`)
 var ansiEscapeRE = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 
 const unreadIdleThreshold = 3 // cycles (3 * 2s = 6s) before showing 📬 on idle
@@ -240,8 +241,8 @@ func updateAllPanes() {
 			windowIdleStreak[window],
 			sinceLastWork,
 		)
-		effectiveStatus = smoothClaudeIdle(effectiveStatus, sinceLastWork)
 		effectiveStatus = withDraftMarker(effectiveStatus, liveDraftSig)
+		effectiveStatus = smoothClaudeIdle(effectiveStatus, sinceLastWork)
 
 		setWindowStatus(window, effectiveStatus)
 	}
@@ -520,45 +521,24 @@ func getStatus(window string, panePID int, childMap map[int][]int, paneCache map
 		return prefix + childStatus
 	}
 
-	// Claude and Codex need different idle heuristics:
-	// - Claude: active first to suppress prompt-redraw flicker.
-	// - Codex: prompt first (original behavior).
-	if agentName == "claude" {
-		if isPaneActive(window, paneCache) {
-			return prefix + "🧠"
-		}
-		if paneNeedsAttention(window, paneCache) {
-			return prefix + "💤"
-		}
-		return prefix + "💤"
+	// Active spinner always takes priority — both Claude and Codex can
+	// show a spinner and a prompt simultaneously (Codex shows the prompt
+	// at the bottom while working above it).
+	if isPaneActive(window, paneCache) {
+		return prefix + "🧠"
 	}
 	if paneNeedsAttention(window, paneCache) {
 		return prefix + "💤"
-	}
-	if isPaneActive(window, paneCache) {
-		return prefix + "🧠"
 	}
 	return prefix + "💤"
 }
 
 func unknownChildStatus(prefix string, paneActive, needsAttention bool) string {
-	// Claude and Codex use different precedence here (see getStatus).
-	if strings.HasPrefix(prefix, "c ") {
-		if paneActive {
-			return prefix + "🧠"
-		}
-		if needsAttention {
-			return prefix + "💤"
-		}
-		return prefix + "⚙️"
-	}
-
-	// Codex legacy behavior: attention takes precedence.
-	if needsAttention {
-		return prefix + "💤"
-	}
 	if paneActive {
 		return prefix + "🧠"
+	}
+	if needsAttention {
+		return prefix + "💤"
 	}
 	return prefix + "⚙️"
 }
@@ -682,6 +662,10 @@ func withUnreadMarker(
 func smoothClaudeIdle(status string, sinceLastWork time.Duration) string {
 	// Claude panes can briefly expose a bare prompt while still in an active run.
 	// Hold idle transitions for a short cooldown to prevent 🧠 <-> 💤 flicker.
+	// Skip if user is drafting (✍️) — draft marker takes priority over smoothing.
+	if strings.Contains(status, "✍️") {
+		return status
+	}
 	if strings.HasPrefix(status, "c ") &&
 		strings.HasSuffix(status, "💤") &&
 		sinceLastWork < claudeIdleCooldown {
@@ -708,6 +692,9 @@ func withDraftMarker(status, draftSig string) string {
 func detectLiveDraftSignature(content string) string {
 	lines := strings.Split(content, "\n")
 	checked := 0
+	// Track non-chrome, non-continuation lines below the prompt.
+	// Prompt continuation lines (2-space indent wrapping) and footer
+	// chrome don't count — only real agent output does.
 	significantBelow := 0
 
 	for i := len(lines) - 1; i >= 0 && checked < 12; i-- {
@@ -734,11 +721,35 @@ func detectLiveDraftSignature(content string) string {
 			}
 			return ""
 		}
-		if !isLiveDraftFooterLine(plainLine) {
+		if !isLiveDraftFooterLine(plainLine) && !isPromptContinuationLine(rawLine) {
 			significantBelow++
 		}
 	}
 	return ""
+}
+
+// isPromptContinuationLine detects wrapped continuation lines of a multi-line
+// Claude/Codex prompt. These are indented with 2 spaces and contain plain user
+// text (no agent-output markers like ⎿, ─, spinner prefixes, etc.).
+func isPromptContinuationLine(rawLine string) bool {
+	plain := stripANSI(rawLine)
+	// Must start with exactly 2 spaces (Claude's continuation indent).
+	if !strings.HasPrefix(plain, "  ") {
+		return false
+	}
+	trimmed := strings.TrimSpace(plain)
+	if trimmed == "" {
+		return false
+	}
+	// Agent output uses structural prefixes — continuation lines don't.
+	if strings.HasPrefix(trimmed, "⎿") ||
+		strings.HasPrefix(trimmed, "│") ||
+		strings.HasPrefix(trimmed, "·") ||
+		strings.HasPrefix(trimmed, "•") ||
+		strings.HasPrefix(trimmed, "●") {
+		return false
+	}
+	return true
 }
 
 func isLiveDraftFooterLine(line string) bool {
@@ -747,6 +758,12 @@ func isLiveDraftFooterLine(line string) bool {
 		return true
 	}
 	if strings.HasPrefix(line, "⏵⏵ ") {
+		return true
+	}
+	// Mode indicators (💬 chat, 🔧 tool, etc.) shown below the prompt.
+	if strings.HasPrefix(line, "💬") ||
+		strings.HasPrefix(line, "🔧") ||
+		strings.HasPrefix(line, "🪄") {
 		return true
 	}
 	return strings.HasPrefix(line, "🟢 ") ||
@@ -851,8 +868,13 @@ func hasTypedPromptText(rawLine string) bool {
 }
 
 // classifyPaneContent returns true if the pane content indicates active work.
+// Scans last 12 non-empty lines (bottom) AND first 6 non-empty lines (top)
+// because Claude's task-list view places the spinner at line 1 while prompt
+// chrome fills the bottom.
 func classifyPaneContent(content string) bool {
 	lines := strings.Split(content, "\n")
+
+	// Bottom scan (last 12 non-empty lines) — catches most layouts.
 	checked := 0
 	for i := len(lines) - 1; i >= 0 && checked < 12; i-- {
 		line := strings.TrimSpace(lines[i])
@@ -869,18 +891,50 @@ func classifyPaneContent(content string) bool {
 			return true
 		}
 	}
+
+	// Top scan (first 6 non-empty lines) — catches task-list spinner.
+	checked = 0
+	for i := 0; i < len(lines) && checked < 6; i++ {
+		line := strings.TrimSpace(lines[i])
+		if line == "" {
+			continue
+		}
+		checked++
+		if hasActiveMarker(line) {
+			return true
+		}
+	}
+
 	return false
 }
 
 func hasSpinnerMarker(line string) bool {
-	return strings.HasPrefix(line, "· ") ||
-		strings.HasPrefix(line, "• ") ||
-		strings.HasPrefix(line, "● ") ||
-		strings.HasPrefix(line, "⏺ ") ||
-		strings.HasPrefix(line, "◦ ") ||
-		strings.HasPrefix(line, "✢ ") ||
-		strings.HasPrefix(line, "✻ ") ||
-		strings.HasPrefix(line, "* ")
+	if len(line) < 2 {
+		return false
+	}
+	// Fast path: check common ASCII spinner.
+	if line[0] == '*' && line[1] == ' ' {
+		return true
+	}
+	// Claude/Codex use a rotating set of Unicode spinner characters.
+	// Rather than enumerating every variant, decode the first rune and
+	// check if it's followed by a space and belongs to a known set.
+	r, size := utf8.DecodeRuneInString(line)
+	if r == utf8.RuneError || size+1 > len(line) || line[size] != ' ' {
+		return false
+	}
+	switch r {
+	case '·', '•', '●', '○', '◦', '◉', '◎', // dots/circles
+		'⏺',                               // record symbol
+		'✢', '✣', '✤', '✥',               // cross marks
+		'✦', '✧', '✨',                     // stars (4-point)
+		'✩', '✪', '✫', '✬', '✭', '✮', '✯', // stars (5-point)
+		'✰',                               // shadowed star
+		'✱', '✲', '✳', '✴', '✵', '✶', '✷', '✸', '✹', '✺', '✻', '✼', '✽', '✾', '✿', // asterisks/florettes
+		'❀', '❁', '❂', '❃', '❇', '❈', '❉', '❊', '❋': // more florettes/sparkles
+		return true
+	}
+	return false
 }
 
 func hasActiveMarker(line string) bool {
@@ -894,15 +948,37 @@ func hasActiveMarker(line string) bool {
 	if strings.Contains(line, "ing\u2026") || strings.Contains(line, "ing...") {
 		return true
 	}
-	// Newer Codex spinner lines can be plain gerunds with elapsed timing,
-	// e.g. "◦ Investigating ... (1m 08s • esc …)".
-	return spinnerElapsedRE.MatchString(line)
+	// Elapsed timing patterns:
+	// "◦ Investigating ... (1m 08s • esc …)"  — spinnerElapsedRE
+	// "· Fixing store logos… (thought for 8s)" — thoughtElapsedRE
+	// "✶ Fixing store logos… (8m 52s · thinking)" — spinnerElapsedRE
+	if spinnerElapsedRE.MatchString(line) || thoughtElapsedRE.MatchString(line) {
+		return true
+	}
+	// Claude Agent() subprocesses: "● Agent(Download logos)"
+	if strings.Contains(line, "Agent(") {
+		return true
+	}
+	return false
 }
 
 func classifyPaneActiveSignature(content string) string {
 	lines := strings.Split(content, "\n")
+	// Bottom scan.
 	checked := 0
 	for i := len(lines) - 1; i >= 0 && checked < 12; i-- {
+		line := strings.TrimSpace(lines[i])
+		if line == "" {
+			continue
+		}
+		checked++
+		if hasActiveMarker(line) {
+			return line
+		}
+	}
+	// Top scan.
+	checked = 0
+	for i := 0; i < len(lines) && checked < 6; i++ {
 		line := strings.TrimSpace(lines[i])
 		if line == "" {
 			continue

@@ -94,8 +94,8 @@ func TestUnknownChildStatus(t *testing.T) {
 		needsAttention bool
 		want           string
 	}{
-		{"codex attention beats active", "x ", true, true, "x 💤"},
-		{"codex active without attention", "x ", true, false, "x 🧠"},
+		{"active beats attention", "x ", true, true, "x 🧠"},
+		{"active without attention", "x ", true, false, "x 🧠"},
 		{"claude active beats attention", "c ", true, true, "c 🧠"},
 		{"idle unknown child", "x ", false, false, "x ⚙️"},
 	}
@@ -326,6 +326,42 @@ func TestClassifyPaneContent_Active(t *testing.T) {
 				"› Run /review on my current changes\n" +
 				"\n" +
 				"  gpt-5.3-codex xhigh · 58% left · ~/content-magic-weaver\n",
+		},
+		{
+			"star spinner with thought elapsed",
+			"· Fixing wrong store logos… (thought for 8s)\n" +
+				"  ⎿  ◼ Fix wrong store logos\n" +
+				"     ◻ Fix Inness boutique store logo\n" +
+				"\n" +
+				"─────────────────\n" +
+				"❯ \n" +
+				"─────────────────\n" +
+				"  🟢 41%\n" +
+				"  ⏵⏵ bypass permissions on\n",
+		},
+		{
+			"star6 spinner at top with task list",
+			"✶ Fixing wrong store logos… (8m 52s · thinking)\n" +
+				"  ⎿  ◼ Fix wrong store logos\n" +
+				"     ◻ Fix other task\n" +
+				"      … +2 pending\n" +
+				"\n" +
+				"─────────────────\n" +
+				"❯ \n" +
+				"─────────────────\n" +
+				"  🟢 41%\n" +
+				"  ⏵⏵ bypass permissions on\n",
+		},
+		{
+			"agent subprocess marker",
+			"● Agent(Download correct store logos)\n" +
+				"  ⎿  ◼ Fix wrong store logos\n" +
+				"\n" +
+				"─────────────────\n" +
+				"❯ \n" +
+				"─────────────────\n" +
+				"  🟢 41%\n" +
+				"  ⏵⏵ bypass permissions on\n",
 		},
 	}
 	for _, tt := range tests {
@@ -774,6 +810,12 @@ func TestSmoothClaudeIdle(t *testing.T) {
 			sinceWork: claudeIdleCooldown - time.Second,
 			want:      "c 🔨",
 		},
+		{
+			name:      "draft marker not overridden by cooldown",
+			status:    "c✍️",
+			sinceWork: claudeIdleCooldown - time.Second,
+			want:      "c✍️",
+		},
 	}
 
 	for _, tt := range tests {
@@ -905,6 +947,28 @@ func TestDetectLiveDraftSignature(t *testing.T) {
 			name:    "bare claude prompt is not draft",
 			content: "All set.\n\n❯",
 			want:    "",
+		},
+		{
+			name: "multi-line wrapped draft with footer chrome is draft",
+			content: "  ⎿  Interrupted · What should Claude do instead?\n\n" +
+				"────────────────────────\n" +
+				"❯ n make aure tou covwr all the todo list items. if\n" +
+				"  rhere are bugs add tests for them. and make sure\n" +
+				"  they dont happen again. if there are data issues\n" +
+				"  make sure yoi baxkfill\n" +
+				"────────────────────────\n" +
+				"💬\n" +
+				"⏵⏵ bypass permissions on (shift+tab to cycle)\n",
+			want: "claude:❯ n make aure tou covwr all the todo list items. if",
+		},
+		{
+			name: "multi-line wrapped draft without mode indicator is draft",
+			content: "────────────────────────\n" +
+				"❯ fix the bug in login flow and add\n" +
+				"  a regression test for it\n" +
+				"────────────────────────\n" +
+				"⏵⏵ bypass permissions on\n",
+			want: "claude:❯ fix the bug in login flow and add",
 		},
 	}
 
