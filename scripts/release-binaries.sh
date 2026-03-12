@@ -12,6 +12,7 @@ fi
 
 REPO_SLUG="${REPO_SLUG:-luqmaan/tmux-ai-status}"
 DIST_DIR="${DIST_DIR:-$ROOT/dist}"
+TARGET="${TARGET:-main}"
 mkdir -p "$DIST_DIR"
 
 build_binary() {
@@ -32,5 +33,5 @@ build_binary arm64 "$ARM64_BIN"
 if gh release view "$TAG" --repo "$REPO_SLUG" >/dev/null 2>&1; then
 	gh release upload "$TAG" "$AMD64_BIN" "$ARM64_BIN" "$CHECKSUMS" --clobber --repo "$REPO_SLUG"
 else
-	gh release create "$TAG" "$AMD64_BIN" "$ARM64_BIN" "$CHECKSUMS" --repo "$REPO_SLUG" --title "$TAG"
+	gh release create "$TAG" "$AMD64_BIN" "$ARM64_BIN" "$CHECKSUMS" --repo "$REPO_SLUG" --title "$TAG" --target "$TARGET"
 fi
