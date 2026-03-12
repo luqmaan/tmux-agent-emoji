@@ -219,7 +219,9 @@ The helper script:
 - runs a heuristic secret scan on `tmux-ai-status/`,
 - creates `OWNER/tmux-ai-status` on GitHub if missing,
 - splits history with `git subtree split --prefix=tmux-ai-status`,
-- pushes to `main` on the public repo.
+- force-updates `main` with `--force-with-lease` so the public repo mirrors the monorepo subtree.
+
+Do not edit the public repo directly; publish from the monorepo instead.
 
 ## Uninstall
 
