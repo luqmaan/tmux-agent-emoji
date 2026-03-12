@@ -785,6 +785,60 @@ func TestClaudeUnreadStaysWorkingDuringIdleCooldown(t *testing.T) {
 	}
 }
 
+func TestResolveDisplayStatus(t *testing.T) {
+	tests := []struct {
+		name          string
+		rawStatus     string
+		draftSig      string
+		unread        bool
+		idleStreak    int
+		sinceLastWork time.Duration
+		want          string
+	}{
+		{
+			name:          "claude draft beats unread",
+			rawStatus:     "c 💤",
+			draftSig:      "claude:❯ revise this",
+			unread:        true,
+			idleStreak:    unreadIdleThreshold + 2,
+			sinceLastWork: claudeIdleCooldown + time.Second,
+			want:          "c✍️",
+		},
+		{
+			name:          "claude stays active during idle cooldown",
+			rawStatus:     "c 💤",
+			unread:        true,
+			idleStreak:    unreadIdleThreshold + 2,
+			sinceLastWork: claudeIdleCooldown - time.Second,
+			want:          "c 🧠",
+		},
+		{
+			name:          "claude unread after cooldown and stable idle",
+			rawStatus:     "c 💤",
+			unread:        true,
+			idleStreak:    unreadIdleThreshold,
+			sinceLastWork: claudeIdleCooldown + time.Second,
+			want:          "c 📬",
+		},
+		{
+			name:          "codex unread remains immediate",
+			rawStatus:     "x 💤",
+			unread:        true,
+			idleStreak:    1,
+			sinceLastWork: time.Second,
+			want:          "x 📬",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := resolveDisplayStatus(tt.rawStatus, tt.draftSig, tt.unread, tt.idleStreak, tt.sinceLastWork); got != tt.want {
+				t.Errorf("resolveDisplayStatus() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestSmoothClaudeIdle(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -1107,6 +1161,118 @@ func TestShouldMarkUnread(t *testing.T) {
 				t.Errorf("shouldMarkUnread() = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+type testWindowCycleState struct {
+	wasWorking bool
+	seenBefore bool
+	promptSig  string
+	doneSig    string
+	idleStreak int
+	lastWorkAt time.Time
+	unread     bool
+}
+
+func (s *testWindowCycleState) step(
+	now time.Time,
+	rawStatus string,
+	focused bool,
+	promptSig, doneSig, liveDraftSig string,
+) string {
+	isWorking := isWorkingStatus(rawStatus)
+	if shouldMarkUnread(
+		s.wasWorking,
+		focused,
+		isWorking,
+		rawStatus,
+		s.seenBefore,
+		promptSig,
+		s.promptSig,
+		doneSig,
+		s.doneSig,
+		liveDraftSig != "",
+	) {
+		s.unread = true
+	}
+	if focused || isWorking {
+		s.unread = false
+	}
+	if isWorking {
+		s.lastWorkAt = now
+	}
+	if !isWorking && rawStatus != "" && strings.HasSuffix(rawStatus, "💤") {
+		s.idleStreak++
+	} else {
+		s.idleStreak = 0
+	}
+
+	sinceLastWork := claudeIdleCooldown
+	if !s.lastWorkAt.IsZero() {
+		sinceLastWork = now.Sub(s.lastWorkAt)
+	}
+
+	s.wasWorking = isWorking
+	s.seenBefore = true
+	s.promptSig = promptSig
+	s.doneSig = doneSig
+
+	return resolveDisplayStatus(rawStatus, liveDraftSig, s.unread, s.idleStreak, sinceLastWork)
+}
+
+func TestWindowStatusSequence_ClaudeCompletionUnreadAndFocusClear(t *testing.T) {
+	base := time.Unix(1_700_000_000, 0)
+	var state testWindowCycleState
+
+	if got := state.step(base, "c 🧠", false, "", "", ""); got != "c 🧠" {
+		t.Fatalf("step 1 = %q, want c 🧠", got)
+	}
+	if state.unread {
+		t.Fatal("unread should stay false while Claude is working")
+	}
+
+	doneSig := "All clear."
+	promptSig := "claude:❯"
+	for i, tc := range []struct {
+		after time.Duration
+		want  string
+	}{
+		{after: 5 * time.Second, want: "c 🧠"},
+		{after: claudeIdleCooldown + time.Second, want: "c 💤"},
+		{after: claudeIdleCooldown + 3*time.Second, want: "c 📬"},
+	} {
+		now := base.Add(tc.after)
+		got := state.step(now, "c 💤", false, promptSig, doneSig, "")
+		if got != tc.want {
+			t.Fatalf("idle step %d = %q, want %q", i+1, got, tc.want)
+		}
+	}
+	if !state.unread {
+		t.Fatal("Claude completion should leave the window unread while unfocused")
+	}
+
+	if got := state.step(base.Add(30*time.Second), "c 💤", true, promptSig, doneSig, ""); got != "c 💤" {
+		t.Fatalf("focused step = %q, want c 💤", got)
+	}
+	if state.unread {
+		t.Fatal("focus should clear unread")
+	}
+}
+
+func TestWindowStatusSequence_CodexUnreadImmediate(t *testing.T) {
+	base := time.Unix(1_700_000_100, 0)
+	var state testWindowCycleState
+
+	if got := state.step(base, "x 🧠", false, "", "", ""); got != "x 🧠" {
+		t.Fatalf("step 1 = %q, want x 🧠", got)
+	}
+
+	got := state.step(base.Add(2*time.Second), "x 💤", false, "codex:›", "Done.", "")
+	if got != "x 📬" {
+		t.Fatalf("step 2 = %q, want x 📬", got)
+	}
+	if !state.unread {
+		t.Fatal("Codex completion should mark unread immediately")
 	}
 }
 

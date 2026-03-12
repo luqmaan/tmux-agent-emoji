@@ -232,14 +232,12 @@ func updateAllPanes() {
 		windowPromptSig[window] = promptSig
 		windowDoneSig[window] = doneSig
 
-		// Replace 💤 with 📬 only after sustained idle to avoid flicker.
-		effectiveStatus := withDraftMarker(rawStatus, liveDraftSig)
-		effectiveStatus = smoothClaudeIdle(effectiveStatus, sinceLastWork)
-		effectiveStatus = withUnreadMarker(
-			effectiveStatus,
-			isWorkingStatus(effectiveStatus),
+		effectiveStatus := resolveDisplayStatus(
+			rawStatus,
+			liveDraftSig,
 			isUnread(window),
 			windowIdleStreak[window],
+			sinceLastWork,
 		)
 
 		setWindowStatus(window, effectiveStatus)
@@ -631,6 +629,21 @@ func isStaleActiveMarker(window, content string, now time.Time) bool {
 func clearActiveMarker(window string) {
 	delete(windowActiveSig, window)
 	delete(windowActiveAt, window)
+}
+
+func resolveDisplayStatus(
+	rawStatus, draftSig string,
+	unread bool,
+	idleStreak int,
+	sinceLastWork time.Duration,
+) string {
+	// Final status resolution order matters:
+	// 1. typed prompt text becomes drafting,
+	// 2. Claude idle smoothing can temporarily hold 🧠,
+	// 3. unread replaces stable idle once the pane has truly settled.
+	status := withDraftMarker(rawStatus, draftSig)
+	status = smoothClaudeIdle(status, sinceLastWork)
+	return withUnreadMarker(status, isWorkingStatus(status), unread, idleStreak)
 }
 
 func withUnreadMarker(
