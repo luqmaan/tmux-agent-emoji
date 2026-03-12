@@ -69,7 +69,7 @@ needs_download=0
 if [ ! -x "$BINARY" ]; then
 	needs_download=1
 fi
-if [ -x "$BINARY" ] && [ "$CURRENT_DIR/tmux-ai-status.tmux" -nt "$BINARY" ]; then
+if [ -x "$BINARY" ] && [ "$CURRENT_DIR/tmux-agent-emoji.tmux" -nt "$BINARY" ]; then
 	needs_download=1
 fi
 if [ -x "$BINARY" ] && [ "$CURRENT_DIR/scripts/start-plugin.sh" -nt "$BINARY" ]; then

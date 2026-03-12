@@ -1,6 +1,8 @@
-# tmux-ai-status
+# tmux-agent-emoji
 
 A lightweight daemon that shows what your AI coding agent (Claude Code, Codex CLI) is doing directly in tmux window names.
+
+This repo is named `tmux-agent-emoji`. The installed binary and release assets still use `tmux-ai-status` for compatibility with existing setups.
 
 <p align="center">
   <img src="docs/status-preview.png" alt="tmux tabs showing Codex and Claude status icons" width="920" />
@@ -135,8 +137,8 @@ For Linux `arm64`, replace `linux-amd64` with `linux-arm64`.
 ### Option C: build from source
 
 ```bash
-git clone https://github.com/luqmaan/tmux-agent-emoji.git tmux-ai-status
-cd tmux-ai-status
+git clone https://github.com/luqmaan/tmux-agent-emoji.git tmux-agent-emoji
+cd tmux-agent-emoji
 make install
 ```
 
@@ -240,17 +242,17 @@ scripts/release-binaries.sh v0.1.0
 
 ## Monorepo Publishing
 
-If this project lives inside a larger monorepo, publish only `tmux-ai-status/` using subtree split:
+If this project lives inside a larger monorepo, publish only `tmux-agent-emoji/` using subtree split:
 
 ```bash
 # from monorepo root
-bash scripts/publish-tmux-ai-status.sh
+bash scripts/publish-tmux-agent-emoji.sh
 ```
 
 The helper script:
-- runs a heuristic secret scan on `tmux-ai-status/`,
+- runs a heuristic secret scan on `tmux-agent-emoji/`,
 - creates `OWNER/tmux-agent-emoji` on GitHub if missing,
-- splits history with `git subtree split --prefix=tmux-ai-status`,
+- splits history with `git subtree split --prefix=tmux-agent-emoji`,
 - force-updates `main` with `--force-with-lease` so the public repo mirrors the monorepo subtree.
 
 Do not edit the public repo directly; publish from the monorepo instead.
