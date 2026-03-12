@@ -3,3 +3,4 @@ tmux-ai-status-bin
 .env
 .env.*
 *.log
+dist/

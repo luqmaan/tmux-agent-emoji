@@ -80,7 +80,8 @@ Focusing the window clears unread.
 
 - Linux (`/proc` access)
 - tmux
-- Go 1.22+ (build only)
+- `curl` or `wget` for TPM/plugin installs
+- Go 1.22+ only if you are building from source or publishing binaries
 
 ## Install
 
@@ -90,21 +91,36 @@ Add to `~/.tmux.conf`:
 
 ```tmux
 set -g @plugin 'tmux-plugins/tpm'
-set -g @plugin 'donkeysrus/tmux-ai-status'
+set -g @plugin 'luqmaan/tmux-ai-status'
 ```
 
 Then install plugins with `prefix + I`.
 
 The plugin:
-- builds the Go binary into `~/.cache/tmux-ai-status/`,
+- downloads the latest release binary into `~/.cache/tmux-ai-status/`,
 - starts one daemon per tmux server automatically,
 - works with custom tmux socket paths,
 - does not require systemd.
 
-### Option B: local binary
+Do not run the TPM plugin and the systemd service for the same tmux server at the same time.
+
+### Option B: binary download
+
+For Linux `amd64`:
 
 ```bash
-git clone https://github.com/donkeysrus/tmux-ai-status.git
+mkdir -p ~/.local/bin
+curl -fsSL https://github.com/luqmaan/tmux-ai-status/releases/latest/download/tmux-ai-status-linux-amd64 \
+  -o ~/.local/bin/tmux-ai-status
+chmod +x ~/.local/bin/tmux-ai-status
+```
+
+For Linux `arm64`, replace `linux-amd64` with `linux-arm64`.
+
+### Option C: build from source
+
+```bash
+git clone https://github.com/luqmaan/tmux-ai-status.git
 cd tmux-ai-status
 make install
 ```
@@ -178,6 +194,18 @@ The suite includes regressions for:
 - process-first classification,
 - unread transition rules.
 
+## Publishing Release Binaries
+
+TPM installs rely on GitHub release assets named:
+- `tmux-ai-status-linux-amd64`
+- `tmux-ai-status-linux-arm64`
+
+Publish them with:
+
+```bash
+scripts/release-binaries.sh v0.1.0
+```
+
 ## Monorepo Publishing
 
 If this project lives inside a larger monorepo, publish only `tmux-ai-status/` using subtree split:
@@ -203,7 +231,7 @@ rm -f ~/.config/systemd/user/tmux-ai-status.service
 systemctl --user daemon-reload
 ```
 
-If you installed via TPM, remove `donkeysrus/tmux-ai-status` from `~/.tmux.conf`, then press `prefix + alt + u` in tmux or delete `~/.tmux/plugins/tmux-ai-status`.
+If you installed via TPM, remove `luqmaan/tmux-ai-status` from `~/.tmux.conf`, then press `prefix + alt + u` in tmux or delete `~/.tmux/plugins/tmux-ai-status`.
 
 ## License
 
