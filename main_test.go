@@ -421,6 +421,7 @@ func TestClassifyPaneContent_Idle(t *testing.T) {
 		content string
 	}{
 		{"claude idle", "output\n\n❯ \n──────\n  🟢 19%\n  ⏵⏵ bypass permissions on\n"},
+		{"claude worked", "✻ Worked for 1m 51s\n❯ \n"},
 		{"codex idle", "Done.\n\n› Explain this codebase\n\n  gpt-5.3-codex · 87% left\n"},
 		{"codex worked", "─ Worked for 1m 51s ──────\n• Deployed.\n› \n"},
 		{"codex cogitated", "✻ Cogitated for 1m 27s\n❯ \n"},
@@ -623,6 +624,11 @@ func TestClassifyPaneCompletionSignature(t *testing.T) {
 			name:    "codex worked marker",
 			content: "─ Worked for 2m 21s ─\n• Summary\n› Next task\n",
 			want:    "─ Worked for 2m 21s ─",
+		},
+		{
+			name:    "claude worked marker",
+			content: "✻ Worked for 2m 21s\n\n❯ \n",
+			want:    "✻ Worked for 2m 21s",
 		},
 		{
 			name:    "done line",

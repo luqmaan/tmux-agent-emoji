@@ -1138,6 +1138,8 @@ func classifyPaneCompletionSignature(content string) string {
 
 func isCompletionLine(line string) bool {
 	return strings.HasPrefix(line, "─ Worked for ") ||
+		strings.HasPrefix(line, "✻ Worked for ") ||
+		strings.HasPrefix(line, "* Worked for ") ||
 		line == "Done." || strings.HasPrefix(line, "Done. ") ||
 		line == "All set." || strings.HasPrefix(line, "All set. ")
 }
