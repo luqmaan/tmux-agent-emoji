@@ -43,7 +43,6 @@ var thoughtElapsedRE = regexp.MustCompile(`\(thought for \d+`)
 var ansiEscapeRE = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 
 const unreadIdleThreshold = 3 // cycles (3 * 2s = 6s) before showing 📬 on idle
-const unreadAfterWorkCooldown = 20 * time.Second
 const claudeIdleCooldown = 15 * time.Second
 
 type windowState struct {
@@ -223,7 +222,7 @@ func updateAllPanes() {
 			windowIdleStreak[window] = 0
 		}
 
-		sinceLastWork := unreadAfterWorkCooldown
+		sinceLastWork := claudeIdleCooldown
 		if ts, ok := windowLastWorkAt[window]; ok {
 			sinceLastWork = now.Sub(ts)
 		}
@@ -234,15 +233,14 @@ func updateAllPanes() {
 		windowDoneSig[window] = doneSig
 
 		// Replace 💤 with 📬 only after sustained idle to avoid flicker.
-		effectiveStatus := withUnreadMarker(
-			rawStatus,
-			isWorking,
+		effectiveStatus := withDraftMarker(rawStatus, liveDraftSig)
+		effectiveStatus = smoothClaudeIdle(effectiveStatus, sinceLastWork)
+		effectiveStatus = withUnreadMarker(
+			effectiveStatus,
+			isWorkingStatus(effectiveStatus),
 			isUnread(window),
 			windowIdleStreak[window],
-			sinceLastWork,
 		)
-		effectiveStatus = withDraftMarker(effectiveStatus, liveDraftSig)
-		effectiveStatus = smoothClaudeIdle(effectiveStatus, sinceLastWork)
 
 		setWindowStatus(window, effectiveStatus)
 	}
@@ -639,7 +637,6 @@ func withUnreadMarker(
 	rawStatus string,
 	isWorking, unread bool,
 	idleStreak int,
-	sinceLastWork time.Duration,
 ) string {
 	if isWorking || rawStatus == "" || !unread || !strings.HasSuffix(rawStatus, "💤") {
 		return rawStatus
@@ -650,10 +647,9 @@ func withUnreadMarker(
 		return strings.TrimSuffix(rawStatus, "💤") + "📬"
 	}
 
-	// Claude keeps anti-flicker gating.
+	// Claude waits for idle stability, then becomes unread immediately.
 	if strings.HasPrefix(rawStatus, "c ") &&
-		idleStreak >= unreadIdleThreshold &&
-		sinceLastWork >= unreadAfterWorkCooldown {
+		idleStreak >= unreadIdleThreshold {
 		return strings.TrimSuffix(rawStatus, "💤") + "📬"
 	}
 	return rawStatus
@@ -925,11 +921,11 @@ func hasSpinnerMarker(line string) bool {
 	}
 	switch r {
 	case '·', '•', '●', '○', '◦', '◉', '◎', // dots/circles
-		'⏺',                               // record symbol
-		'✢', '✣', '✤', '✥',               // cross marks
-		'✦', '✧', '✨',                     // stars (4-point)
+		'⏺',                // record symbol
+		'✢', '✣', '✤', '✥', // cross marks
+		'✦', '✧', '✨', // stars (4-point)
 		'✩', '✪', '✫', '✬', '✭', '✮', '✯', // stars (5-point)
-		'✰',                               // shadowed star
+		'✰',                                                                       // shadowed star
 		'✱', '✲', '✳', '✴', '✵', '✶', '✷', '✸', '✹', '✺', '✻', '✼', '✽', '✾', '✿', // asterisks/florettes
 		'❀', '❁', '❂', '❃', '❇', '❈', '❉', '❊', '❋': // more florettes/sparkles
 		return true

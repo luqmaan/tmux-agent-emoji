@@ -716,7 +716,6 @@ func TestWithUnreadMarkerThreshold(t *testing.T) {
 		isWorking  bool
 		unread     bool
 		idleStreak int
-		sinceWork  time.Duration
 		want       string
 	}{
 		{
@@ -724,7 +723,6 @@ func TestWithUnreadMarkerThreshold(t *testing.T) {
 			rawStatus:  "c 💤",
 			unread:     true,
 			idleStreak: unreadIdleThreshold - 1,
-			sinceWork:  unreadAfterWorkCooldown + time.Second,
 			want:       "c 💤",
 		},
 		{
@@ -732,7 +730,6 @@ func TestWithUnreadMarkerThreshold(t *testing.T) {
 			rawStatus:  "c 💤",
 			unread:     true,
 			idleStreak: unreadIdleThreshold,
-			sinceWork:  unreadAfterWorkCooldown + time.Second,
 			want:       "c 📬",
 		},
 		{
@@ -741,7 +738,6 @@ func TestWithUnreadMarkerThreshold(t *testing.T) {
 			isWorking:  true,
 			unread:     true,
 			idleStreak: unreadIdleThreshold + 5,
-			sinceWork:  unreadAfterWorkCooldown + time.Second,
 			want:       "c 🧠",
 		},
 		{
@@ -749,33 +745,43 @@ func TestWithUnreadMarkerThreshold(t *testing.T) {
 			rawStatus:  "c 🔨",
 			unread:     true,
 			idleStreak: unreadIdleThreshold + 5,
-			sinceWork:  unreadAfterWorkCooldown + time.Second,
 			want:       "c 🔨",
-		},
-		{
-			name:       "recent work suppresses mailbox",
-			rawStatus:  "c 💤",
-			unread:     true,
-			idleStreak: unreadIdleThreshold + 5,
-			sinceWork:  unreadAfterWorkCooldown - time.Second,
-			want:       "c 💤",
 		},
 		{
 			name:       "codex unread is immediate (legacy behavior)",
 			rawStatus:  "x 💤",
 			unread:     true,
 			idleStreak: 0,
-			sinceWork:  0,
 			want:       "x 📬",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := withUnreadMarker(tt.rawStatus, tt.isWorking, tt.unread, tt.idleStreak, tt.sinceWork); got != tt.want {
+			if got := withUnreadMarker(tt.rawStatus, tt.isWorking, tt.unread, tt.idleStreak); got != tt.want {
 				t.Errorf("withUnreadMarker() = %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestClaudeUnreadAppearsAsSoonAsIdleCooldownEnds(t *testing.T) {
+	status := withDraftMarker("c 💤", "")
+	status = smoothClaudeIdle(status, claudeIdleCooldown+time.Second)
+	status = withUnreadMarker(status, isWorkingStatus(status), true, unreadIdleThreshold)
+
+	if status != "c 📬" {
+		t.Errorf("expected c 📬 once idle cooldown ends, got %q", status)
+	}
+}
+
+func TestClaudeUnreadStaysWorkingDuringIdleCooldown(t *testing.T) {
+	status := withDraftMarker("c 💤", "")
+	status = smoothClaudeIdle(status, claudeIdleCooldown-time.Second)
+	status = withUnreadMarker(status, isWorkingStatus(status), true, unreadIdleThreshold)
+
+	if status != "c 🧠" {
+		t.Errorf("expected c 🧠 during idle cooldown, got %q", status)
 	}
 }
 
