@@ -16,13 +16,15 @@ import (
 
 var (
 	listPanesOutput = func() ([]byte, error) {
-		return exec.Command("tmux", "list-panes", "-a",
+		return tmuxCommand("list-panes", "-a",
 			"-F", "#{session_name}:#{window_index} #{pane_pid} #{window_active}").Output()
 	}
 	capturePaneOutput = func(window string) ([]byte, error) {
-		return exec.Command("tmux", "capture-pane", "-t", window, "-p", "-e").Output()
+		return tmuxCommand("capture-pane", "-t", window, "-p", "-e").Output()
 	}
 )
+
+const tmuxSocketEnv = "TMUX_AI_STATUS_SOCKET"
 
 var (
 	// lastActive tracks when each window was last seen as active.
@@ -462,10 +464,22 @@ func setWindowStatus(window, status string) {
 	ws.count = 0
 
 	if status != "" {
-		exec.Command("tmux", "rename-window", "-t", window, status).Run()
+		tmuxCommand("rename-window", "-t", window, status).Run()
 	} else {
-		exec.Command("tmux", "set-option", "-t", window, "automatic-rename", "on").Run()
+		tmuxCommand("set-option", "-t", window, "automatic-rename", "on").Run()
 	}
+}
+
+func tmuxCommand(args ...string) *exec.Cmd {
+	return exec.Command("tmux", tmuxArgs(args...)...)
+}
+
+func tmuxArgs(args ...string) []string {
+	if socket := strings.TrimSpace(os.Getenv(tmuxSocketEnv)); socket != "" {
+		prefixed := []string{"-S", socket}
+		return append(prefixed, args...)
+	}
+	return args
 }
 
 func buildChildMap() map[int][]int {

@@ -84,6 +84,25 @@ Focusing the window clears unread.
 
 ## Install
 
+### Option A: TPM plugin (recommended)
+
+Add to `~/.tmux.conf`:
+
+```tmux
+set -g @plugin 'tmux-plugins/tpm'
+set -g @plugin 'donkeysrus/tmux-ai-status'
+```
+
+Then install plugins with `prefix + I`.
+
+The plugin:
+- builds the Go binary into `~/.cache/tmux-ai-status/`,
+- starts one daemon per tmux server automatically,
+- works with custom tmux socket paths,
+- does not require systemd.
+
+### Option B: local binary
+
 ```bash
 git clone https://github.com/donkeysrus/tmux-ai-status.git
 cd tmux-ai-status
@@ -108,7 +127,7 @@ Reload tmux config:
 tmux source-file ~/.tmux.conf
 ```
 
-### Option B: systemd user service (recommended)
+### Option B: systemd user service
 
 Create `~/.config/systemd/user/tmux-ai-status.service`:
 
@@ -178,11 +197,13 @@ The helper script:
 
 ```bash
 pkill -f tmux-ai-status
-rm ~/.local/bin/tmux-ai-status
+rm -f ~/.local/bin/tmux-ai-status ~/.local/bin/tmux-ai-status-bin
 systemctl --user disable --now tmux-ai-status.service 2>/dev/null || true
 rm -f ~/.config/systemd/user/tmux-ai-status.service
 systemctl --user daemon-reload
 ```
+
+If you installed via TPM, remove `donkeysrus/tmux-ai-status` from `~/.tmux.conf`, then press `prefix + alt + u` in tmux or delete `~/.tmux/plugins/tmux-ai-status`.
 
 ## License
 

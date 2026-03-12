@@ -143,6 +143,26 @@ func TestContainsAny(t *testing.T) {
 	}
 }
 
+func TestTmuxArgs(t *testing.T) {
+	t.Run("without socket override", func(t *testing.T) {
+		t.Setenv(tmuxSocketEnv, "")
+		got := tmuxArgs("list-panes", "-a")
+		want := []string{"list-panes", "-a"}
+		if strings.Join(got, "\x00") != strings.Join(want, "\x00") {
+			t.Fatalf("tmuxArgs() = %v, want %v", got, want)
+		}
+	})
+
+	t.Run("with socket override", func(t *testing.T) {
+		t.Setenv(tmuxSocketEnv, "/tmp/tmux-test.sock")
+		got := tmuxArgs("list-panes", "-a")
+		want := []string{"-S", "/tmp/tmux-test.sock", "list-panes", "-a"}
+		if strings.Join(got, "\x00") != strings.Join(want, "\x00") {
+			t.Fatalf("tmuxArgs() = %v, want %v", got, want)
+		}
+	})
+}
+
 func TestCollectDescendants(t *testing.T) {
 	childMap := map[int][]int{
 		1: {2, 3}, 2: {4}, 3: {5, 6}, 6: {7},
