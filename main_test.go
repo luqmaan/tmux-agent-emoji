@@ -89,21 +89,43 @@ func TestIsAgentLikeProcess(t *testing.T) {
 func TestUnknownChildStatus(t *testing.T) {
 	tests := []struct {
 		name           string
-		prefix         string
+		policy         agentPolicy
 		paneActive     bool
 		needsAttention bool
 		want           string
 	}{
-		{"active beats attention", "x ", true, true, "x 🧠"},
-		{"active without attention", "x ", true, false, "x 🧠"},
-		{"claude active beats attention", "c ", true, true, "c 🧠"},
-		{"idle unknown child", "x ", false, false, "x ⚙️"},
+		{"active beats attention", codexPolicy, true, true, "x 🧠"},
+		{"active without attention", codexPolicy, true, false, "x 🧠"},
+		{"claude active beats attention", claudePolicy, true, true, "c 🧠"},
+		{"idle unknown child", codexPolicy, false, false, "x ⚙️"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := unknownChildStatus(tt.prefix, tt.paneActive, tt.needsAttention)
+			got := unknownChildStatus(tt.policy, tt.paneActive, tt.needsAttention)
 			if got != tt.want {
 				t.Errorf("unknownChildStatus() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestPolicyForStatus(t *testing.T) {
+	tests := []struct {
+		name   string
+		status string
+		want   agentPolicy
+	}{
+		{name: "codex working", status: "x 🧠", want: codexPolicy},
+		{name: "codex draft", status: "x✍️", want: codexPolicy},
+		{name: "claude idle", status: "c 💤", want: claudePolicy},
+		{name: "claude draft", status: "c✍️", want: claudePolicy},
+		{name: "unknown", status: "zsh", want: agentPolicy{}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := policyForStatus(tt.status); got != tt.want {
+				t.Errorf("policyForStatus(%q) = %+v, want %+v", tt.status, got, tt.want)
 			}
 		})
 	}
@@ -767,7 +789,7 @@ func TestWithUnreadMarkerThreshold(t *testing.T) {
 
 func TestClaudeUnreadAppearsAsSoonAsIdleCooldownEnds(t *testing.T) {
 	status := withDraftMarker("c 💤", "")
-	status = smoothClaudeIdle(status, claudeIdleCooldown+time.Second)
+	status = smoothIdleStatus(status, claudeIdleCooldown+time.Second)
 	status = withUnreadMarker(status, isWorkingStatus(status), true, unreadIdleThreshold)
 
 	if status != "c 📬" {
@@ -777,7 +799,7 @@ func TestClaudeUnreadAppearsAsSoonAsIdleCooldownEnds(t *testing.T) {
 
 func TestClaudeUnreadStaysWorkingDuringIdleCooldown(t *testing.T) {
 	status := withDraftMarker("c 💤", "")
-	status = smoothClaudeIdle(status, claudeIdleCooldown-time.Second)
+	status = smoothIdleStatus(status, claudeIdleCooldown-time.Second)
 	status = withUnreadMarker(status, isWorkingStatus(status), true, unreadIdleThreshold)
 
 	if status != "c 🧠" {
@@ -839,7 +861,7 @@ func TestResolveDisplayStatus(t *testing.T) {
 	}
 }
 
-func TestSmoothClaudeIdle(t *testing.T) {
+func TestSmoothIdleStatus(t *testing.T) {
 	tests := []struct {
 		name      string
 		status    string
@@ -880,11 +902,52 @@ func TestSmoothClaudeIdle(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := smoothClaudeIdle(tt.status, tt.sinceWork); got != tt.want {
-				t.Errorf("smoothClaudeIdle() = %q, want %q", got, tt.want)
+			if got := smoothIdleStatus(tt.status, tt.sinceWork); got != tt.want {
+				t.Errorf("smoothIdleStatus() = %q, want %q", got, tt.want)
 			}
 		})
 	}
+}
+
+func readPaneFixture(t *testing.T, name string) string {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join("testdata", "panes", name))
+	if err != nil {
+		t.Fatalf("read fixture %q: %v", name, err)
+	}
+	return string(data)
+}
+
+func TestPaneFixtures(t *testing.T) {
+	t.Run("claude active fixture", func(t *testing.T) {
+		content := readPaneFixture(t, "claude-active.txt")
+		if !classifyPaneContent(content) {
+			t.Fatal("expected Claude fixture to classify as active")
+		}
+		if sig := classifyPaneActiveSignature(content); sig == "" {
+			t.Fatal("expected Claude fixture to produce an active signature")
+		}
+	})
+
+	t.Run("codex idle fixture", func(t *testing.T) {
+		content := readPaneFixture(t, "codex-idle.txt")
+		if classifyPaneContent(content) {
+			t.Fatal("expected Codex fixture to classify as idle")
+		}
+		if !classifyPaneNeedsAttention(content) {
+			t.Fatal("expected Codex fixture to need attention")
+		}
+		if sig := classifyPaneAttentionSignature(content); sig != "codex:› Explain this codebase" {
+			t.Fatalf("unexpected Codex prompt signature %q", sig)
+		}
+	})
+
+	t.Run("claude draft fixture", func(t *testing.T) {
+		content := readPaneFixture(t, "claude-draft.txt")
+		if sig := detectLiveDraftSignature(content); sig != "claude:❯ draft this message" {
+			t.Fatalf("unexpected Claude draft signature %q", sig)
+		}
+	})
 }
 
 func TestWithDraftMarker(t *testing.T) {

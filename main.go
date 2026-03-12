@@ -45,6 +45,42 @@ var ansiEscapeRE = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 const unreadIdleThreshold = 3 // cycles (3 * 2s = 6s) before showing 📬 on idle
 const claudeIdleCooldown = 15 * time.Second
 
+type agentPolicy struct {
+	name                string
+	statusPrefix        string
+	draftPrefix         string
+	unreadIdleThreshold int
+	idleCooldown        time.Duration
+}
+
+func (p agentPolicy) known() bool {
+	return p.statusPrefix != ""
+}
+
+func (p agentPolicy) status(emoji string) string {
+	return p.statusPrefix + emoji
+}
+
+func (p agentPolicy) draftStatus() string {
+	return p.draftPrefix + "✍️"
+}
+
+var (
+	codexPolicy = agentPolicy{
+		name:                "codex",
+		statusPrefix:        "x ",
+		draftPrefix:         "x",
+		unreadIdleThreshold: 0,
+	}
+	claudePolicy = agentPolicy{
+		name:                "claude",
+		statusPrefix:        "c ",
+		draftPrefix:         "c",
+		unreadIdleThreshold: unreadIdleThreshold,
+		idleCooldown:        claudeIdleCooldown,
+	}
+)
+
 type windowState struct {
 	applied string // status currently shown in tmux
 	pending string // candidate status seen last cycle
@@ -481,10 +517,7 @@ func getStatus(window string, panePID int, childMap map[int][]int, paneCache map
 		return ""
 	}
 
-	prefix := "c "
-	if agentName == "codex" {
-		prefix = "x "
-	}
+	policy := policyForAgentName(agentName)
 
 	descendants := collectDescendants(agentPID, childMap)
 
@@ -509,34 +542,34 @@ func getStatus(window string, panePID int, childMap map[int][]int, paneCache map
 		childStatus := classifyChildren(childSignals)
 		if childStatus == "⚙️" {
 			return unknownChildStatus(
-				prefix,
+				policy,
 				isPaneActive(window, paneCache),
 				paneNeedsAttention(window, paneCache),
 			)
 		}
-		return prefix + childStatus
+		return policy.status(childStatus)
 	}
 
 	// Active spinner always takes priority — both Claude and Codex can
 	// show a spinner and a prompt simultaneously (Codex shows the prompt
 	// at the bottom while working above it).
 	if isPaneActive(window, paneCache) {
-		return prefix + "🧠"
+		return policy.status("🧠")
 	}
 	if paneNeedsAttention(window, paneCache) {
-		return prefix + "💤"
+		return policy.status("💤")
 	}
-	return prefix + "💤"
+	return policy.status("💤")
 }
 
-func unknownChildStatus(prefix string, paneActive, needsAttention bool) string {
+func unknownChildStatus(policy agentPolicy, paneActive, needsAttention bool) string {
 	if paneActive {
-		return prefix + "🧠"
+		return policy.status("🧠")
 	}
 	if needsAttention {
-		return prefix + "💤"
+		return policy.status("💤")
 	}
-	return prefix + "⚙️"
+	return policy.status("⚙️")
 }
 
 func paneNeedsAttention(window string, paneCache map[string]*paneCapture) bool {
@@ -642,7 +675,7 @@ func resolveDisplayStatus(
 	// 2. Claude idle smoothing can temporarily hold 🧠,
 	// 3. unread replaces stable idle once the pane has truly settled.
 	status := withDraftMarker(rawStatus, draftSig)
-	status = smoothClaudeIdle(status, sinceLastWork)
+	status = smoothIdleStatus(status, sinceLastWork)
 	return withUnreadMarker(status, isWorkingStatus(status), unread, idleStreak)
 }
 
@@ -655,30 +688,26 @@ func withUnreadMarker(
 		return rawStatus
 	}
 
-	// Codex uses the original immediate unread marker behavior.
-	if strings.HasPrefix(rawStatus, "x ") {
-		return strings.TrimSuffix(rawStatus, "💤") + "📬"
-	}
-
-	// Claude waits for idle stability, then becomes unread immediately.
-	if strings.HasPrefix(rawStatus, "c ") &&
-		idleStreak >= unreadIdleThreshold {
-		return strings.TrimSuffix(rawStatus, "💤") + "📬"
+	policy := policyForStatus(rawStatus)
+	if policy.known() && idleStreak >= policy.unreadIdleThreshold {
+		return policy.status("📬")
 	}
 	return rawStatus
 }
 
-func smoothClaudeIdle(status string, sinceLastWork time.Duration) string {
+func smoothIdleStatus(status string, sinceLastWork time.Duration) string {
 	// Claude panes can briefly expose a bare prompt while still in an active run.
 	// Hold idle transitions for a short cooldown to prevent 🧠 <-> 💤 flicker.
 	// Skip if user is drafting (✍️) — draft marker takes priority over smoothing.
 	if strings.Contains(status, "✍️") {
 		return status
 	}
-	if strings.HasPrefix(status, "c ") &&
+	policy := policyForStatus(status)
+	if policy.known() &&
+		policy.idleCooldown > 0 &&
 		strings.HasSuffix(status, "💤") &&
-		sinceLastWork < claudeIdleCooldown {
-		return "c 🧠"
+		sinceLastWork < policy.idleCooldown {
+		return policy.status("🧠")
 	}
 	return status
 }
@@ -688,13 +717,28 @@ func withDraftMarker(status, draftSig string) string {
 	if draftSig == "" || !hasPromptText(draftSig) {
 		return status
 	}
+	policy := policyForStatus(status)
+	if policy.known() && (strings.HasSuffix(status, "💤") || strings.HasSuffix(status, "📬")) {
+		return policy.draftStatus()
+	}
+	return status
+}
+
+func policyForAgentName(name string) agentPolicy {
+	if name == codexPolicy.name {
+		return codexPolicy
+	}
+	return claudePolicy
+}
+
+func policyForStatus(status string) agentPolicy {
 	switch {
-	case strings.HasPrefix(status, "x ") && (strings.HasSuffix(status, "💤") || strings.HasSuffix(status, "📬")):
-		return "x✍️"
-	case strings.HasPrefix(status, "c ") && (strings.HasSuffix(status, "💤") || strings.HasSuffix(status, "📬")):
-		return "c✍️"
+	case strings.HasPrefix(status, codexPolicy.statusPrefix), strings.HasPrefix(status, codexPolicy.draftStatus()):
+		return codexPolicy
+	case strings.HasPrefix(status, claudePolicy.statusPrefix), strings.HasPrefix(status, claudePolicy.draftStatus()):
+		return claudePolicy
 	default:
-		return status
+		return agentPolicy{}
 	}
 }
 
