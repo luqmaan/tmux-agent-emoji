@@ -43,6 +43,8 @@ var (
 var spinnerElapsedRE = regexp.MustCompile(`\(\s*\d+[hms](?:\s+\d+[hms])?`)
 var thoughtElapsedRE = regexp.MustCompile(`\(thought for \d+`)
 var ansiEscapeRE = regexp.MustCompile(`\x1b\[[0-9;]*m`)
+var localAgentsRE = regexp.MustCompile(`\b[1-9]\d*\s+local agents?\b`)
+var backgroundTasksRE = regexp.MustCompile(`\b[1-9]\d*\s+background tasks?\s+still running\b`)
 
 const unreadIdleThreshold = 3 // cycles (3 * 2s = 6s) before showing 📬 on idle
 const claudeIdleCooldown = 15 * time.Second
@@ -532,6 +534,7 @@ func getStatus(window string, panePID int, childMap map[int][]int, paneCache map
 	}
 
 	policy := policyForAgentName(agentName)
+	hasBackgroundAgents := paneHasBackgroundAgents(window, paneCache)
 
 	descendants := collectDescendants(agentPID, childMap)
 
@@ -555,6 +558,9 @@ func getStatus(window string, panePID int, childMap map[int][]int, paneCache map
 	if len(childSignals) > 0 {
 		childStatus := classifyChildren(childSignals)
 		if childStatus == "⚙️" {
+			if hasBackgroundAgents {
+				return policy.status("🤖")
+			}
 			return unknownChildStatus(
 				policy,
 				isPaneActive(window, paneCache),
@@ -562,6 +568,9 @@ func getStatus(window string, panePID int, childMap map[int][]int, paneCache map
 			)
 		}
 		return policy.status(childStatus)
+	}
+	if hasBackgroundAgents {
+		return policy.status("🤖")
 	}
 
 	// Active spinner always takes priority — both Claude and Codex can
@@ -592,6 +601,14 @@ func paneNeedsAttention(window string, paneCache map[string]*paneCapture) bool {
 		return false
 	}
 	return classifyPaneNeedsAttention(content)
+}
+
+func paneHasBackgroundAgents(window string, paneCache map[string]*paneCapture) bool {
+	content, ok := getPaneContent(window, paneCache)
+	if !ok {
+		return false
+	}
+	return classifyPaneBackgroundAgents(content)
 }
 
 func paneSignals(window string, paneCache map[string]*paneCapture) (promptSig, doneSig string) {
@@ -1066,10 +1083,29 @@ func classifyPaneNeedsAttention(content string) bool {
 }
 
 func classifyPaneAttentionSignature(content string) string {
+	if classifyPaneBackgroundAgents(content) {
+		return ""
+	}
 	if classifyPaneContent(content) {
 		return ""
 	}
 	return detectPromptSignature(content)
+}
+
+func classifyPaneBackgroundAgents(content string) bool {
+	lines := strings.Split(content, "\n")
+	checked := 0
+	for i := len(lines) - 1; i >= 0 && checked < 12; i-- {
+		line := strings.TrimSpace(strings.ToLower(lines[i]))
+		if line == "" {
+			continue
+		}
+		checked++
+		if localAgentsRE.MatchString(line) || backgroundTasksRE.MatchString(line) {
+			return true
+		}
+	}
+	return false
 }
 
 func detectPromptSignature(content string) string {

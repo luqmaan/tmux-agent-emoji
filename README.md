@@ -33,6 +33,7 @@ It works with both Codex and Claude, so I can switch between them and still get 
 | Emoji | Meaning |
 |-------|---------|
 | 🧠 | Agent is actively thinking/working |
+| 🤖 | Agent has local/background sub-agents running |
 | 💤 | Agent is idle / waiting (already seen) |
 | 📬 | Unread: agent finished or needs your attention while unfocused |
 | 🔨 | Build/compile task |
@@ -55,7 +56,7 @@ Every 2 seconds the daemon:
 1. Lists tmux panes and shell PIDs.
 2. Walks `/proc` to find Claude/Codex under each pane shell.
 3. Uses **live descendant processes first** to classify status.
-4. Falls back to pane text only when no live worker child is active.
+4. Falls back to pane text only when no live worker child is active, including Claude/Codex footer signals like `8 local agents`.
 5. Applies unread logic and updates the tmux window name.
 
 ### Why process-first
