@@ -118,6 +118,7 @@ func TestPolicyForStatus(t *testing.T) {
 		{name: "codex working", status: "x 🧠", want: codexPolicy},
 		{name: "codex draft", status: "x✍️", want: codexPolicy},
 		{name: "claude idle", status: "c 💤", want: claudePolicy},
+		{name: "claude local agents", status: "c 🤖", want: claudePolicy},
 		{name: "claude draft", status: "c✍️", want: claudePolicy},
 		{name: "unknown", status: "zsh", want: agentPolicy{}},
 	}
@@ -439,6 +440,61 @@ func TestClassifyPaneContent_Idle(t *testing.T) {
 	}
 }
 
+func TestClassifyPaneBackgroundAgents(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+		want    bool
+	}{
+		{
+			name: "local agents footer near prompt",
+			content: "All set.\n" +
+				"─────────────────\n" +
+				"❯ \n" +
+				"─────────────────\n" +
+				"  🟢 41%\n" +
+				"  ⏵⏵ bypass permissions on · 8 local agents\n",
+			want: true,
+		},
+		{
+			name: "background tasks summary near bottom",
+			content: "Reports incoming.\n" +
+				"● Agent \"Trust signals: shoepalace\" completed\n" +
+				"✻ Cogitated for 4m 28s · 10 background tasks still running (↓ to manage)\n" +
+				"● Agent \"Trust signals: kithnyc\" completed\n" +
+				"❯ \n" +
+				"  🟢 7%\n" +
+				"  ⏵⏵ bypass permissions on\n",
+			want: true,
+		},
+		{
+			name: "stale local agents mention scrolled away",
+			content: "⏵⏵ bypass permissions on · 8 local agents\n" +
+				"line 1\n" +
+				"line 2\n" +
+				"line 3\n" +
+				"line 4\n" +
+				"line 5\n" +
+				"line 6\n" +
+				"line 7\n" +
+				"line 8\n" +
+				"line 9\n" +
+				"line 10\n" +
+				"line 11\n" +
+				"line 12\n",
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := classifyPaneBackgroundAgents(tt.content); got != tt.want {
+				t.Errorf("classifyPaneBackgroundAgents() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestClassifyPaneNeedsAttention(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -461,6 +517,16 @@ func TestClassifyPaneNeedsAttention(t *testing.T) {
 			name:    "active spinner is not attention",
 			content: "· Thinking… (5s · esc to interrupt)\n❯ \n",
 			want:    false,
+		},
+		{
+			name: "local agents are not attention",
+			content: "All set.\n" +
+				"─────────────────\n" +
+				"❯ \n" +
+				"─────────────────\n" +
+				"  🟢 41%\n" +
+				"  ⏵⏵ bypass permissions on · 8 local agents\n",
+			want: false,
 		},
 		{
 			name:    "plain output",
