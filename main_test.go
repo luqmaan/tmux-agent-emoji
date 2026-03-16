@@ -51,7 +51,7 @@ func TestClassifyChildren(t *testing.T) {
 		{[]string{"rustc", "cargo"}, "🔨"},
 		{[]string{"git", "curl"}, "🔀"},
 		{[]string{"GCC"}, "🔨"},
-		{[]string{"node coordinator/cli.ts build --wait"}, "🔨"},
+		{[]string{"node agent-build-coordinator/cli.ts build --wait"}, "🔨"},
 	}
 	for _, tt := range tests {
 		t.Run(strings.Join(tt.names, "+"), func(t *testing.T) {
@@ -73,7 +73,7 @@ func TestIsAgentLikeProcess(t *testing.T) {
 		{"codex thread", "codex", "", true},
 		{"codex binary", "MainThread", "/usr/bin/codex --dangerously-bypass-approvals-and-sandbox", true},
 		{"claude binary", "MainThread", "/usr/bin/claude", true},
-		{"plain node worker", "node", "node coordinator/cli.ts build --wait", false},
+		{"plain node worker", "node", "node agent-build-coordinator/cli.ts build --wait", false},
 		{"non-agent comm", "psql", "/usr/lib/postgresql/16/bin/psql ...", false},
 	}
 

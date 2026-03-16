@@ -1238,7 +1238,7 @@ func classifyChildren(names []string) string {
 	if containsAny(
 		joined,
 		"make", "gcc", "g++", "cc1", "rustc", "javac", "tsc", "webpack", "vite", "esbuild", "rollup",
-		"coordinator/cli.ts build", " next build", "npm run build", "pnpm run build", "yarn build", "go build", "cargo build",
+		"agent-build-coordinator/cli.ts build", "coordinator/cli.ts build", " next build", "npm run build", "pnpm run build", "yarn build", "go build", "cargo build",
 	) {
 		return "🔨"
 	}
