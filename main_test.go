@@ -468,6 +468,24 @@ func TestClassifyPaneBackgroundAgents(t *testing.T) {
 			want: true,
 		},
 		{
+			name: "single background command near bottom",
+			content: "All good.\n" +
+				"❯ hows it goign\n" +
+				"● Bash(tmux capture-pane -t trust-batch -p | tail -15)\n" +
+				"  ⎿  Running in the background (↓ to manage)\n" +
+				"● Searched for 1 pattern\n",
+			want: true,
+		},
+		{
+			name: "background footer command still running",
+			content: "Batch is running smoothly.\n" +
+				"❯ \n" +
+				"────────────────────\n" +
+				"  🟢 24%\n" +
+				"  ⏵⏵ bypass permissions on · tmux capture-pane -t trust-batch -p 2>/… (running)\n",
+			want: true,
+		},
+		{
 			name: "stale local agents mention scrolled away",
 			content: "⏵⏵ bypass permissions on · 8 local agents\n" +
 				"line 1\n" +
@@ -695,6 +713,21 @@ func TestClassifyPaneCompletionSignature(t *testing.T) {
 			name:    "claude worked marker",
 			content: "✻ Worked for 2m 21s\n\n❯ \n",
 			want:    "✻ Worked for 2m 21s",
+		},
+		{
+			name:    "claude cooked marker",
+			content: "✻ Cooked for 6m 58s\n\n❯ \n",
+			want:    "✻ Cooked for 6m 58s",
+		},
+		{
+			name:    "claude churned marker",
+			content: "✻ Churned for 24m 43s\n\n❯ \n",
+			want:    "✻ Churned for 24m 43s",
+		},
+		{
+			name:    "codex cogitated marker",
+			content: "✻ Cogitated for 1m 27s\n\n❯ \n",
+			want:    "✻ Cogitated for 1m 27s",
 		},
 		{
 			name:    "done line",
@@ -928,7 +961,7 @@ func TestWithUnreadMarkerThreshold(t *testing.T) {
 
 func TestClaudeUnreadAppearsAsSoonAsIdleCooldownEnds(t *testing.T) {
 	status := withDraftMarker("c 💤", "")
-	status = smoothIdleStatus(status, claudeIdleCooldown+time.Second)
+	status = smoothIdleStatus(status, "", claudeIdleCooldown+time.Second)
 	status = withUnreadMarker(status, isWorkingStatus(status), true, unreadIdleThreshold)
 
 	if status != "c 📬" {
@@ -938,7 +971,7 @@ func TestClaudeUnreadAppearsAsSoonAsIdleCooldownEnds(t *testing.T) {
 
 func TestClaudeUnreadStaysWorkingDuringIdleCooldown(t *testing.T) {
 	status := withDraftMarker("c 💤", "")
-	status = smoothIdleStatus(status, claudeIdleCooldown-time.Second)
+	status = smoothIdleStatus(status, "", claudeIdleCooldown-time.Second)
 	status = withUnreadMarker(status, isWorkingStatus(status), true, unreadIdleThreshold)
 
 	if status != "c 🧠" {
@@ -951,6 +984,7 @@ func TestResolveDisplayStatus(t *testing.T) {
 		name          string
 		rawStatus     string
 		draftSig      string
+		doneSig       string
 		unread        bool
 		idleStreak    int
 		sinceLastWork time.Duration
@@ -974,6 +1008,15 @@ func TestResolveDisplayStatus(t *testing.T) {
 			want:          "c 🧠",
 		},
 		{
+			name:          "claude completion bypasses idle cooldown",
+			rawStatus:     "c 💤",
+			doneSig:       "✻ Cooked for 6m 58s",
+			unread:        false,
+			idleStreak:    1,
+			sinceLastWork: claudeIdleCooldown - time.Second,
+			want:          "c 💤",
+		},
+		{
 			name:          "claude unread after cooldown and stable idle",
 			rawStatus:     "c 💤",
 			unread:        true,
@@ -993,7 +1036,7 @@ func TestResolveDisplayStatus(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := resolveDisplayStatus(tt.rawStatus, tt.draftSig, tt.unread, tt.idleStreak, tt.sinceLastWork); got != tt.want {
+			if got := resolveDisplayStatus(tt.rawStatus, tt.draftSig, tt.doneSig, tt.unread, tt.idleStreak, tt.sinceLastWork); got != tt.want {
 				t.Errorf("resolveDisplayStatus() = %q, want %q", got, tt.want)
 			}
 		})
@@ -1004,6 +1047,7 @@ func TestSmoothIdleStatus(t *testing.T) {
 	tests := []struct {
 		name      string
 		status    string
+		doneSig   string
 		sinceWork time.Duration
 		want      string
 	}{
@@ -1012,6 +1056,13 @@ func TestSmoothIdleStatus(t *testing.T) {
 			status:    "c 💤",
 			sinceWork: claudeIdleCooldown - time.Second,
 			want:      "c 🧠",
+		},
+		{
+			name:      "completion marker bypasses cooldown",
+			status:    "c 💤",
+			doneSig:   "✻ Cooked for 6m 58s",
+			sinceWork: claudeIdleCooldown - time.Second,
+			want:      "c 💤",
 		},
 		{
 			name:      "claude idle allowed after cooldown",
@@ -1041,7 +1092,7 @@ func TestSmoothIdleStatus(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := smoothIdleStatus(tt.status, tt.sinceWork); got != tt.want {
+			if got := smoothIdleStatus(tt.status, tt.doneSig, tt.sinceWork); got != tt.want {
 				t.Errorf("smoothIdleStatus() = %q, want %q", got, tt.want)
 			}
 		})
@@ -1419,7 +1470,7 @@ func (s *testWindowCycleState) step(
 	s.promptSig = promptSig
 	s.doneSig = doneSig
 
-	return resolveDisplayStatus(rawStatus, liveDraftSig, s.unread, s.idleStreak, sinceLastWork)
+	return resolveDisplayStatus(rawStatus, liveDraftSig, doneSig, s.unread, s.idleStreak, sinceLastWork)
 }
 
 func TestWindowStatusSequence_ClaudeCompletionUnreadAndFocusClear(t *testing.T) {
@@ -1439,7 +1490,7 @@ func TestWindowStatusSequence_ClaudeCompletionUnreadAndFocusClear(t *testing.T) 
 		after time.Duration
 		want  string
 	}{
-		{after: 5 * time.Second, want: "c 🧠"},
+		{after: 5 * time.Second, want: "c 💤"},
 		{after: claudeIdleCooldown + time.Second, want: "c 💤"},
 		{after: claudeIdleCooldown + 3*time.Second, want: "c 📬"},
 	} {

@@ -45,6 +45,7 @@ var thoughtElapsedRE = regexp.MustCompile(`\(thought for \d+`)
 var ansiEscapeRE = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 var localAgentsRE = regexp.MustCompile(`\b[1-9]\d*\s+local agents?\b`)
 var backgroundTasksRE = regexp.MustCompile(`\b[1-9]\d*\s+background tasks?\s+still running\b`)
+var elapsedCompletionRE = regexp.MustCompile(`^[─✻*] [A-Z][A-Za-z]+ed for `)
 
 const unreadIdleThreshold = 3 // cycles (3 * 2s = 6s) before showing 📬 on idle
 const claudeIdleCooldown = 15 * time.Second
@@ -275,6 +276,7 @@ func updateAllPanes() {
 		effectiveStatus := resolveDisplayStatus(
 			rawStatus,
 			liveDraftSig,
+			doneSig,
 			isUnread(window),
 			windowIdleStreak[window],
 			sinceLastWork,
@@ -697,17 +699,18 @@ func clearActiveMarker(window string) {
 }
 
 func resolveDisplayStatus(
-	rawStatus, draftSig string,
+	rawStatus, draftSig, doneSig string,
 	unread bool,
 	idleStreak int,
 	sinceLastWork time.Duration,
 ) string {
 	// Final status resolution order matters:
 	// 1. typed prompt text becomes drafting,
-	// 2. Claude idle smoothing can temporarily hold 🧠,
+	// 2. Claude idle smoothing can temporarily hold 🧠 unless a real
+	//    completion marker is visible,
 	// 3. unread replaces stable idle once the pane has truly settled.
 	status := withDraftMarker(rawStatus, draftSig)
-	status = smoothIdleStatus(status, sinceLastWork)
+	status = smoothIdleStatus(status, doneSig, sinceLastWork)
 	return withUnreadMarker(status, isWorkingStatus(status), unread, idleStreak)
 }
 
@@ -727,11 +730,14 @@ func withUnreadMarker(
 	return rawStatus
 }
 
-func smoothIdleStatus(status string, sinceLastWork time.Duration) string {
+func smoothIdleStatus(status, doneSig string, sinceLastWork time.Duration) string {
 	// Claude panes can briefly expose a bare prompt while still in an active run.
 	// Hold idle transitions for a short cooldown to prevent 🧠 <-> 💤 flicker.
 	// Skip if user is drafting (✍️) — draft marker takes priority over smoothing.
 	if strings.Contains(status, "✍️") {
+		return status
+	}
+	if doneSig != "" {
 		return status
 	}
 	policy := policyForStatus(status)
@@ -1101,11 +1107,29 @@ func classifyPaneBackgroundAgents(content string) bool {
 			continue
 		}
 		checked++
-		if localAgentsRE.MatchString(line) || backgroundTasksRE.MatchString(line) {
+		if localAgentsRE.MatchString(line) ||
+			backgroundTasksRE.MatchString(line) ||
+			isBackgroundManageLine(line) ||
+			isBackgroundRunningFooterLine(line) {
 			return true
 		}
 	}
 	return false
+}
+
+func isBackgroundManageLine(line string) bool {
+	// Claude sometimes reports a single managed background command without
+	// the numbered "N background tasks still running" summary.
+	return strings.Contains(line, "running in the background") &&
+		strings.Contains(line, "to manage")
+}
+
+func isBackgroundRunningFooterLine(line string) bool {
+	// Claude can keep a managed background command in the prompt footer:
+	// "⏵⏵ bypass permissions on · <command> (running)"
+	return strings.HasPrefix(line, "⏵⏵ ") &&
+		strings.Contains(line, "·") &&
+		strings.HasSuffix(line, "(running)")
 }
 
 func detectPromptSignature(content string) string {
@@ -1173,9 +1197,7 @@ func classifyPaneCompletionSignature(content string) string {
 }
 
 func isCompletionLine(line string) bool {
-	return strings.HasPrefix(line, "─ Worked for ") ||
-		strings.HasPrefix(line, "✻ Worked for ") ||
-		strings.HasPrefix(line, "* Worked for ") ||
+	return elapsedCompletionRE.MatchString(line) ||
 		line == "Done." || strings.HasPrefix(line, "Done. ") ||
 		line == "All set." || strings.HasPrefix(line, "All set. ")
 }
