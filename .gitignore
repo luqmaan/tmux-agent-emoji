@@ -1,5 +1,6 @@
 tmux-ai-status
 tmux-ai-status-bin
+tmux-agent-emoji
 .env
 .env.*
 *.log
