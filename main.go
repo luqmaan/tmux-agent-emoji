@@ -38,6 +38,11 @@ var (
 	// preventing flicker from brief child processes or spinner redraws.
 	statusState   = make(map[string]*windowState)
 	statusStateMu sync.Mutex
+
+	// initialBaselineComplete becomes true after the first successful scan.
+	// Existing windows should establish a read baseline on startup rather than
+	// immediately turning into unread/mailbox state after a binary restart.
+	initialBaselineComplete bool
 )
 
 var spinnerElapsedRE = regexp.MustCompile(`\(\s*\d+[hms](?:\s+\d+[hms])?`)
@@ -213,6 +218,7 @@ func updateAllPanes() {
 	}
 
 	// Apply unread logic per window, then set status.
+	initialScan := !initialBaselineComplete
 	for window, s := range summaries {
 		now := time.Now()
 		rawStatus := s.status
@@ -220,6 +226,7 @@ func updateAllPanes() {
 		wasWorking := windowWasWorking[window]
 		isWorking := isWorkingStatus(rawStatus)
 		seenBefore := windowSeen[window]
+		allowInitialPromptUnread := !initialScan || seenBefore
 		promptSig := ""
 		doneSig := ""
 		liveDraftSig := ""
@@ -243,6 +250,7 @@ func updateAllPanes() {
 			prevPromptSig,
 			doneSig,
 			prevDoneSig,
+			allowInitialPromptUnread,
 			liveDraftSig != "",
 		) {
 			markUnread(window)
@@ -340,6 +348,8 @@ func updateAllPanes() {
 			delete(windowActiveAt, w)
 		}
 	}
+
+	initialBaselineComplete = true
 }
 
 func isWorkingStatus(status string) bool {
@@ -389,6 +399,7 @@ func shouldMarkUnread(
 	rawStatus string,
 	seenBefore bool,
 	promptSig, prevPromptSig, doneSig, prevDoneSig string,
+	allowInitialPromptUnread bool,
 	isLiveDraft bool,
 ) bool {
 	if focused || isWorking || rawStatus == "" {
@@ -403,8 +414,10 @@ func shouldMarkUnread(
 	}
 	if !seenBefore {
 		// First baseline should stay read for bare prompts, but explicit
-		// prompt text ("› Run /review...") indicates immediate attention.
-		return hasPromptText(promptSig)
+		// prompt text ("› Run /review...") indicates immediate attention for
+		// panes first seen during this process lifetime. On startup, treat the
+		// first scan as read baseline so restarts do not reset everything to 📬.
+		return allowInitialPromptUnread && hasPromptText(promptSig)
 	}
 	if doneSig != "" && doneSig != prevDoneSig {
 		return true
