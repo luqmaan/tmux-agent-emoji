@@ -241,22 +241,14 @@ Publish them with:
 scripts/release-binaries.sh v0.1.0
 ```
 
-## Monorepo Publishing
+## Development
 
-If this project lives inside a larger monorepo, publish only `tmux-agent-emoji/` using subtree split:
+Work in this repo directly:
 
 ```bash
-# from monorepo root
-bash scripts/publish-tmux-agent-emoji.sh
+make test
+git push origin main
 ```
-
-The helper script:
-- runs a heuristic secret scan on `tmux-agent-emoji/`,
-- creates `OWNER/tmux-agent-emoji` on GitHub if missing,
-- splits history with `git subtree split --prefix=tmux-agent-emoji`,
-- force-updates `main` with `--force-with-lease` so the public repo mirrors the monorepo subtree.
-
-Do not edit the public repo directly; publish from the monorepo instead.
 
 ## Uninstall
 
