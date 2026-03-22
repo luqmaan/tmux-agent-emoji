@@ -77,6 +77,7 @@ Focusing the window clears unread.
 
 - Active grace period: `10s` (`activeGrace`) to survive spinner redraw gaps.
 - Stale active marker decay: if the same active marker repeats with a visible prompt for `12s`, it is treated as stale and no longer forces `🧠`.
+- Bare-prompt active panes use a longer stale timeout: `2m` before a repeated active marker is treated as stale.
 - Status stability threshold: currently `1` cycle (fast updates).
 
 ## Requirements
@@ -238,7 +239,7 @@ TPM installs rely on GitHub release assets named:
 Publish them with:
 
 ```bash
-scripts/release-binaries.sh v0.1.0
+scripts/release-binaries.sh v0.1.3
 ```
 
 ## Development

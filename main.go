@@ -45,7 +45,7 @@ var (
 	initialBaselineComplete bool
 )
 
-var spinnerElapsedRE = regexp.MustCompile(`\(\s*\d+[hms](?:\s+\d+[hms])?`)
+var spinnerElapsedRE = regexp.MustCompile(`\(\s*\d+[hms](?:\s+\d+[hms]){0,2}`)
 var thoughtElapsedRE = regexp.MustCompile(`\(thought for \d+`)
 var ansiEscapeRE = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 var localAgentsRE = regexp.MustCompile(`\b[1-9]\d*\s+local agents?\b`)
@@ -121,9 +121,14 @@ var (
 	windowDoneSig    = make(map[string]string)
 	windowIdleStreak = make(map[string]int)
 	windowLastWorkAt = make(map[string]time.Time)
-	windowActiveSig  = make(map[string]string)
-	windowActiveAt   = make(map[string]time.Time)
+	windowActive     = make(map[string]activeMarkerState)
 )
+
+type activeMarkerState struct {
+	sig     string
+	paneSig string
+	started time.Time
+}
 
 func listPanes() []paneInfo {
 	out, err := listPanesOutput()
@@ -338,14 +343,9 @@ func updateAllPanes() {
 			delete(windowLastWorkAt, w)
 		}
 	}
-	for w := range windowActiveSig {
+	for w := range windowActive {
 		if !seenWindows[w] {
-			delete(windowActiveSig, w)
-		}
-	}
-	for w := range windowActiveAt {
-		if !seenWindows[w] {
-			delete(windowActiveAt, w)
+			delete(windowActive, w)
 		}
 	}
 
@@ -652,7 +652,8 @@ func isPaneActive(window string, paneCache map[string]*paneCapture) bool {
 	if content, ok := getPaneContent(window, paneCache); ok {
 		active = classifyPaneContent(content)
 		if active {
-			active = !isStaleActiveMarker(window, content, now)
+			styled, _ := getPaneStyledContent(window, paneCache)
+			active = !isStaleActiveMarker(window, content, styled, now)
 		} else {
 			clearActiveMarker(window)
 		}
@@ -679,36 +680,56 @@ func isPaneActive(window string, paneCache map[string]*paneCapture) bool {
 }
 
 const staleActiveThreshold = 12 * time.Second
+const barePromptStaleActiveThreshold = 2 * time.Minute
 
-func isStaleActiveMarker(window, content string, now time.Time) bool {
+func isStaleActiveMarker(window, content, styled string, now time.Time) bool {
 	activeSig := classifyPaneActiveSignature(content)
 	if activeSig == "" {
 		return false
 	}
 	promptSig := detectPromptSignature(content)
+	paneSig := activePaneSignature(content, styled)
 	if promptSig == "" {
-		windowActiveSig[window] = activeSig
-		windowActiveAt[window] = now
+		setActiveMarker(window, activeSig, paneSig, now)
 		return false
 	}
 
-	prevSig, ok := windowActiveSig[window]
-	if !ok || prevSig != activeSig {
-		windowActiveSig[window] = activeSig
-		windowActiveAt[window] = now
+	state, ok := windowActive[window]
+	if !ok || state.sig != activeSig || state.paneSig != paneSig {
+		setActiveMarker(window, activeSig, paneSig, now)
 		return false
 	}
-	startedAt, ok := windowActiveAt[window]
-	if !ok {
-		windowActiveAt[window] = now
+	if state.started.IsZero() {
+		setActiveMarker(window, activeSig, paneSig, now)
 		return false
 	}
-	return now.Sub(startedAt) >= staleActiveThreshold
+	return now.Sub(state.started) >= activeMarkerThreshold(promptSig)
 }
 
 func clearActiveMarker(window string) {
-	delete(windowActiveSig, window)
-	delete(windowActiveAt, window)
+	delete(windowActive, window)
+}
+
+func setActiveMarker(window, activeSig, paneSig string, now time.Time) {
+	windowActive[window] = activeMarkerState{
+		sig:     activeSig,
+		paneSig: paneSig,
+		started: now,
+	}
+}
+
+func activeMarkerThreshold(promptSig string) time.Duration {
+	if hasPromptText(promptSig) {
+		return staleActiveThreshold
+	}
+	return barePromptStaleActiveThreshold
+}
+
+func activePaneSignature(content, styled string) string {
+	if styled != "" {
+		return strings.TrimRight(styled, "\n")
+	}
+	return strings.TrimRight(content, "\n")
 }
 
 func resolveDisplayStatus(
@@ -1057,6 +1078,11 @@ func hasActiveMarker(line string) bool {
 	// "· Fixing store logos… (thought for 8s)" — thoughtElapsedRE
 	// "✶ Fixing store logos… (8m 52s · thinking)" — spinnerElapsedRE
 	if spinnerElapsedRE.MatchString(line) || thoughtElapsedRE.MatchString(line) {
+		return true
+	}
+	// Claude can also collapse active lines down to a static "(thinking)"
+	// suffix without elapsed time while the task is still running.
+	if strings.Contains(line, "thinking)") {
 		return true
 	}
 	// Claude Agent() subprocesses: "● Agent(Download logos)"

@@ -360,6 +360,8 @@ func TestClassifyPaneContent_Active(t *testing.T) {
 		{"accomplishing", "· Accomplishing… (1m 13s · ↓ 1.3k tokens · thought for 20s)\n❯ \n"},
 		{"bare spinner no parens", "* Perusing…\n\n──────\n❯ \n"},
 		{"bare spinner three dots", "· Thinking...\n❯ \n"},
+		{"thinking without timer", "✶ Rewriting buyer's guides… (thinking)\n❯ \n"},
+		{"thinking with hms timer", "✢ Rewriting buyer's guides… (1h 53m 0s · thinking)\n❯ \n"},
 		{"claude compacting marker", "● Compacting conversation context… (2m 01s)\n❯ \n"},
 		{"spinner elapsed timer without ellipsis", "◦ Investigating window process states (1m 08s • esc …)\n› \n"},
 		{
@@ -682,19 +684,70 @@ func TestIsStaleActiveMarker(t *testing.T) {
 	window := "test:stale-active"
 	content := "◦ Planning broad tests and monitoring (1m 03s • esc to interrupt)\n› Find and fix a bug in @filename\n"
 
-	delete(windowActiveSig, window)
-	delete(windowActiveAt, window)
+	delete(windowActive, window)
 	defer func() {
-		delete(windowActiveSig, window)
-		delete(windowActiveAt, window)
+		delete(windowActive, window)
 	}()
 
 	now := time.Now()
-	if stale := isStaleActiveMarker(window, content, now); stale {
+	if stale := isStaleActiveMarker(window, content, content, now); stale {
 		t.Error("first seen active marker should not be stale")
 	}
-	if stale := isStaleActiveMarker(window, content, now.Add(staleActiveThreshold+time.Second)); !stale {
+	if stale := isStaleActiveMarker(window, content, content, now.Add(staleActiveThreshold+time.Second)); !stale {
 		t.Error("unchanged active marker with prompt should become stale")
+	}
+}
+
+func TestIsStaleActiveMarker_BarePromptUsesExtendedThreshold(t *testing.T) {
+	window := "test:stale-bare-prompt"
+	content := "✢ Rewriting buyer's guides… (1h 48m 8s · thinking)\n❯ \n"
+
+	delete(windowActive, window)
+	defer func() {
+		delete(windowActive, window)
+	}()
+
+	now := time.Now()
+	if stale := isStaleActiveMarker(window, content, content, now); stale {
+		t.Error("first seen active marker should not be stale")
+	}
+	if stale := isStaleActiveMarker(window, content, content, now.Add(staleActiveThreshold+time.Second)); stale {
+		t.Error("bare prompt should not use the short stale threshold")
+	}
+	if stale := isStaleActiveMarker(window, content, content, now.Add(barePromptStaleActiveThreshold+time.Second)); !stale {
+		t.Error("bare prompt should eventually become stale after the extended threshold")
+	}
+}
+
+func TestIsStaleActiveMarker_StyledPaneChangesResetTimer(t *testing.T) {
+	window := "test:stale-pane-change"
+	content := "● Agent(Rewrite buyer's guides)\n❯ follow up on the draft\n"
+	styled1 := "\x1b[38;5;174m●\x1b[39m Agent(Rewrite buyer's guides)\n❯ follow up on the draft\n"
+	styled2 := "\x1b[38;5;216m●\x1b[39m Agent(Rewrite buyer's guides)\n❯ follow up on the draft\n"
+
+	delete(windowActive, window)
+	defer func() {
+		delete(windowActive, window)
+	}()
+
+	now := time.Now()
+	if stale := isStaleActiveMarker(window, content, styled1, now); stale {
+		t.Error("first seen active marker should not be stale")
+	}
+	if stale := isStaleActiveMarker(window, content, styled2, now.Add(staleActiveThreshold+time.Second)); stale {
+		t.Error("styled pane changes should reset stale tracking")
+	}
+	if stale := isStaleActiveMarker(window, content, styled2, now.Add(2*staleActiveThreshold+2*time.Second)); !stale {
+		t.Error("unchanged styled pane should become stale after the reset")
+	}
+}
+
+func TestActiveMarkerThreshold(t *testing.T) {
+	if got := activeMarkerThreshold("claude:❯ follow up"); got != staleActiveThreshold {
+		t.Fatalf("typed prompt threshold = %v, want %v", got, staleActiveThreshold)
+	}
+	if got := activeMarkerThreshold("claude:❯"); got != barePromptStaleActiveThreshold {
+		t.Fatalf("bare prompt threshold = %v, want %v", got, barePromptStaleActiveThreshold)
 	}
 }
 
