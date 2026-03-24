@@ -408,6 +408,35 @@ func TestClassifyPaneContent_Active(t *testing.T) {
 				"  🟢 41%\n" +
 				"  ⏵⏵ bypass permissions on\n",
 		},
+		{
+			"spinner below long task list near prompt",
+			"● I'll break this into fixes and start investigating in parallel.\n" +
+				"\n" +
+				"● Let me launch the first pass now.\n" +
+				"\n" +
+				"  Agent(Investigate currency bug)\n" +
+				"  ⎿  Search(pattern: \"min_price|max_price\", path: \"lib/canonical-metadata.ts\")\n" +
+				"     Read(lib/canonical-metadata.ts)\n" +
+				"     Bash(psql -c \"select * from products limit 1\")\n" +
+				"     Running…\n" +
+				"     +39 more tool uses (ctrl+o to expand)\n" +
+				"     (ctrl+b ctrl+b (twice) to run in background)\n" +
+				"\n" +
+				"· Razzmatazzing… (2m 35s · ↓ 4.5k tokens)\n" +
+				"  ⎿  ◻ Fix release date being detected as brand\n" +
+				"     ◻ Investigate duplicate jersey recommendations\n" +
+				"     ◻ Fix title normalization for style codes\n" +
+				"     ◻ Deep investigation into currency handling\n" +
+				"     ◻ Fix bad merge for baseball hat product\n" +
+				"     ◻ Fix non-English titles in search results\n" +
+				"     ◻ Fix missing direction for WMNS Adidas product\n" +
+				"\n" +
+				"────────────────────────────────────────\n" +
+				"❯ \n" +
+				"────────────────────────────────────────\n" +
+				"  🟢 3%\n" +
+				"  ⏵⏵ bypass permissions on (shift+tab to cycle)\n",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -598,12 +627,40 @@ func TestClassifyPaneAttentionSignature(t *testing.T) {
 }
 
 func TestClassifyPaneActiveSignature(t *testing.T) {
-	content := "Done.\n\n◦ Planning broad tests and monitoring (1m 03s • esc to interrupt)\n› Find and fix a bug in @filename\n"
-	got := classifyPaneActiveSignature(content)
-	want := "◦ Planning broad tests and monitoring (1m 03s • esc to interrupt)"
-	if got != want {
-		t.Errorf("classifyPaneActiveSignature() = %q, want %q", got, want)
-	}
+	t.Run("simple active line", func(t *testing.T) {
+		content := "Done.\n\n◦ Planning broad tests and monitoring (1m 03s • esc to interrupt)\n› Find and fix a bug in @filename\n"
+		got := classifyPaneActiveSignature(content)
+		want := "◦ Planning broad tests and monitoring (1m 03s • esc to interrupt)"
+		if got != want {
+			t.Errorf("classifyPaneActiveSignature() = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("long task list active line", func(t *testing.T) {
+		content := "● I'll break this into fixes and start investigating in parallel.\n" +
+			"\n" +
+			"● Let me launch the first pass now.\n" +
+			"\n" +
+			"· Razzmatazzing… (2m 35s · ↓ 4.5k tokens)\n" +
+			"  ⎿  ◻ Fix release date being detected as brand\n" +
+			"     ◻ Investigate duplicate jersey recommendations\n" +
+			"     ◻ Fix title normalization for style codes\n" +
+			"     ◻ Deep investigation into currency handling\n" +
+			"     ◻ Fix bad merge for baseball hat product\n" +
+			"     ◻ Fix non-English titles in search results\n" +
+			"     ◻ Fix missing direction for WMNS Adidas product\n" +
+			"\n" +
+			"────────────────────────────────────────\n" +
+			"❯ \n" +
+			"────────────────────────────────────────\n" +
+			"  🟢 3%\n" +
+			"  ⏵⏵ bypass permissions on (shift+tab to cycle)\n"
+		got := classifyPaneActiveSignature(content)
+		want := "· Razzmatazzing… (2m 35s · ↓ 4.5k tokens)"
+		if got != want {
+			t.Errorf("classifyPaneActiveSignature() = %q, want %q", got, want)
+		}
+	})
 }
 
 func TestDetectPromptSignature(t *testing.T) {

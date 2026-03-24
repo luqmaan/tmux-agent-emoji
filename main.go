@@ -54,6 +54,8 @@ var elapsedCompletionRE = regexp.MustCompile(`^[─✻*] [A-Z][A-Za-z]+ed for `)
 
 const unreadIdleThreshold = 3 // cycles (3 * 2s = 6s) before showing 📬 on idle
 const claudeIdleCooldown = 15 * time.Second
+const bottomActivityScanLines = 20
+const topActivityScanLines = 6
 
 type agentPolicy struct {
 	name                string
@@ -993,15 +995,16 @@ func hasTypedPromptText(rawLine string) bool {
 }
 
 // classifyPaneContent returns true if the pane content indicates active work.
-// Scans last 12 non-empty lines (bottom) AND first 6 non-empty lines (top)
-// because Claude's task-list view places the spinner at line 1 while prompt
-// chrome fills the bottom.
+// Scans the last 20 non-empty lines (bottom) and first 6 non-empty lines (top)
+// because Claude's task-list view can push the live spinner deeper above the
+// prompt/footer chrome while still keeping it in the current active block.
 func classifyPaneContent(content string) bool {
 	lines := strings.Split(content, "\n")
 
-	// Bottom scan (last 12 non-empty lines) — catches most layouts.
+	// Bottom scan (last 20 non-empty lines) — catches task-list layouts where
+	// the spinner sits above a longer list of pending work and footer chrome.
 	checked := 0
-	for i := len(lines) - 1; i >= 0 && checked < 12; i-- {
+	for i := len(lines) - 1; i >= 0 && checked < bottomActivityScanLines; i-- {
 		line := strings.TrimSpace(lines[i])
 		if line == "" {
 			continue
@@ -1019,7 +1022,7 @@ func classifyPaneContent(content string) bool {
 
 	// Top scan (first 6 non-empty lines) — catches task-list spinner.
 	checked = 0
-	for i := 0; i < len(lines) && checked < 6; i++ {
+	for i := 0; i < len(lines) && checked < topActivityScanLines; i++ {
 		line := strings.TrimSpace(lines[i])
 		if line == "" {
 			continue
@@ -1096,7 +1099,7 @@ func classifyPaneActiveSignature(content string) string {
 	lines := strings.Split(content, "\n")
 	// Bottom scan.
 	checked := 0
-	for i := len(lines) - 1; i >= 0 && checked < 12; i-- {
+	for i := len(lines) - 1; i >= 0 && checked < bottomActivityScanLines; i-- {
 		line := strings.TrimSpace(lines[i])
 		if line == "" {
 			continue
@@ -1108,7 +1111,7 @@ func classifyPaneActiveSignature(content string) string {
 	}
 	// Top scan.
 	checked = 0
-	for i := 0; i < len(lines) && checked < 6; i++ {
+	for i := 0; i < len(lines) && checked < topActivityScanLines; i++ {
 		line := strings.TrimSpace(lines[i])
 		if line == "" {
 			continue
