@@ -2,8 +2,6 @@
 
 A lightweight daemon that shows what your AI coding agent (Claude Code, Codex CLI) is doing directly in tmux window names.
 
-This repo is named `tmux-agent-emoji`. The installed binary and release assets still use `tmux-ai-status` for compatibility with existing setups.
-
 <p align="center">
   <img src="docs/status-preview.png" alt="tmux tabs showing Codex and Claude status icons" width="920" />
 </p>
@@ -15,9 +13,8 @@ This repo is named `tmux-agent-emoji`. The installed binary and release assets s
 1:x 🧠  2:x 🔨  3:x 💤  4:x 📬  5:zsh
 ```
 
-## Why I use this
-
 I run tmux from my phone and keep lots of agent tabs open.
+
 
 Without this, every tab looks the same and I have to open each one to see what is happening.
 
